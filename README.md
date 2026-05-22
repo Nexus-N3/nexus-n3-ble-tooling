@@ -6,6 +6,7 @@ The layout is split into two parts:
 
 - `NexusBLESdk/`: shared serial transport, command handling, stream monitoring, startup-gate logic, and generic stream statistics
 - `MovellaDot/`: the Movella DOT sample client built on top of `NexusBLESdk`
+- `NexusN3Dot/`: the Nexus N3 Dot sample client built on top of `NexusBLESdk`
 
 Additional sensor integrations can be added beside `MovellaDot/` using the same structure.
 
@@ -17,12 +18,17 @@ Additional sensor integrations can be added beside `MovellaDot/` using the same 
 - `MovellaDot/`
   The Movella DOT integration. This directory contains Movella DOT-specific constants, payload parsing, sensor operations, and a runnable `stream_client.py` example.
 
+- `NexusN3Dot/`
+  The Nexus N3 Dot integration. This directory contains Nexus N3 Dot-specific constants, payload parsing, sensor operations, and a runnable `stream_client.py` example.
+
 ## Getting Started
 
-To start with the Movella DOT sample:
+To start with the supported samples:
 
 - see [MovellaDot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling/MovellaDot/README.md)
 - run `python MovellaDot/stream_client.py --sensor-count 1 --stream-seconds 10`
+- see [NexusN3Dot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling/NexusN3Dot/README.md)
+- run `python NexusN3Dot/stream_client.py --sensor-count 1 --stream-seconds 10`
 
 ## Design Intent
 
