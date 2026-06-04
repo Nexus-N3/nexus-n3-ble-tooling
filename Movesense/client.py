@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import time
 
+# SDK imports
 from NexusBLESdk import GatewayClient, SensorConnection, StreamFrame
 
 from .profile import (
@@ -34,6 +35,15 @@ from .profile import (
 
 class MovesenseClient:
     def __init__(self, gateway: GatewayClient):
+        '''
+        Initializes the MovesenseClient with the given GatewayClient.
+         - The gateway is used for all BLE interactions, including scanning, connecting, subscribing, and writing to sensors.
+         - The client maintains a list of active sensor connections and configuration for sampling rates and stream IDs.
+         - It also has optional file handles for dumping raw frames and writing parsed rows, which can be set using the corresponding methods.
+         - The ECG path suffix can be configured to allow for different measurement paths on the Movesense sensors.
+         - The client is designed to handle multiple sensors simultaneously, managing their connections and data streams in a coordinated manner.
+         - Returns an instance of MovesenseClient ready to be used for discovering, connecting, and streaming data from Movesense sensors.
+        '''
         self.gateway = gateway
         self.connections: list[SensorConnection] = []
         self.sampling_rate_hz = MOVESENSE_SAMPLING_RATES_HZ[0]
@@ -47,6 +57,13 @@ class MovesenseClient:
         )
 
     def discover(self, sensor_count: int, scan_timeout_ms: int) -> list[str]:
+        '''
+            Discovers Movesense sensors by scanning for BLE devices with the specified name prefix.
+             - The method uses the gateway to perform a BLE scan for the specified duration, filtering devices based on the Movesense name prefix.
+             - It then selects the addresses of the discovered devices, up to the specified sensor count, using the select_addresses utility function.
+             - The method returns a list of BLE addresses for the discovered Movesense sensors, which can be used for connecting and streaming data from those sensors.
+             - If no sensors are found or the scan times out, it returns an empty list. If the number of discovered sensors exceeds the specified sensor count, it selects the appropriate number of addresses based on the selection criteria defined in the select_addresses function.
+        '''
         matches = self.gateway.scan(
             scan_timeout_ms,
             name_prefix_filter=MOVESENSE_NAME_PREFIX,
@@ -54,6 +71,12 @@ class MovesenseClient:
         return select_addresses(matches, sensor_count)
 
     def connect(self, addresses: list[str], timeout_s: float) -> list[SensorConnection]:
+        '''
+            Connects to the specified Movesense sensors using their BLE addresses.
+             - The method uses the gateway to establish connections to the sensors with the given addresses, applying a timeout for the connection process.
+             - It returns a list of SensorConnection objects representing the active connections to the sensors. Each SensorConnection contains information about the connected sensor, such as its address and sensor ID.
+             - If any connection attempt fails or times out, it raises an exception or returns an empty list depending on the implementation of the gateway's connect method. The client is designed to manage multiple connections simultaneously, allowing for coordinated streaming and data handling from multiple sensors. 
+        '''
         self.connections = self.gateway.connect(addresses, timeout_s=timeout_s)
         return self.connections
 
@@ -65,6 +88,13 @@ class MovesenseClient:
         write_timeout_s: float,
         without_response: bool,
     ):
+        '''
+            Configures the connected Movesense sensors for streaming data.
+             - The method subscribes to the notification characteristic for each connected sensor, using a retry mechanism with the specified timeout. The effective subscribe timeout is calculated based on the number of connections to ensure sufficient time for all subscriptions to be established.
+             - It then writes the subscribe commands to the sensors to start the ECG, heart rate, and temperature streams, using the specified write timeout and response settings.
+             - The sampling rate for the ECG stream is validated against the supported rates, and if valid, it is set for use in parsing the incoming data frames. If the sampling rate is not supported, it raises a ValueError.
+             - The method ensures that the sensors are properly configured to start streaming data, and it can be called after connecting to the sensors to prepare them for data collection.   
+        '''
         effective_subscribe_timeout_s = max(
             subscribe_timeout_s,
             min(20.0, 6.0 + (len(self.connections) * 1.5)),
@@ -157,6 +187,19 @@ class MovesenseClient:
         self.ecg_path_suffix = suffix
 
     def handle_stream_frame(self, frame: StreamFrame, monitor, wall_time: float):
+        '''
+        Handles an incoming stream frame from a Movesense sensor.
+         - The method first checks the payload of the frame to ensure it has the expected structure and contains at least the packet type and stream ID.
+         - It then retrieves the address corresponding to the sensor ID in the frame using the _address_for_sensor_id helper method.
+         - The raw frame is dumped to a file if a raw dump file is configured, including relevant metadata such as wall time, sensor ID, gateway timestamp, and address.
+         - If measurement recording is active in the monitor, it writes parsed rows extracted from the payload to the parsed row writer if configured.
+         - The method checks the packet type and stream ID to determine how to handle the frame:
+             - For ECG data packets, it calls the monitor's handle_ecg_frame method to process the ECG data.
+             - For heart rate and temperature data packets, it extracts the values and records samples in the monitor using record_hr_sample and record_temp_sample methods respectively.
+         - If the packet type is not a data packet or if the stream ID is not recognized, it simply returns without further processing. This allows for handling only relevant frames while ignoring others that may not be of interest.
+         - The method is designed to be called for each incoming stream frame, allowing for real-time processing of data from Movesense sensors as it arrives.
+         - Returns None after processing the frame.
+        '''
         payload = frame.payload
         if len(payload) < 2:
             return
@@ -170,6 +213,7 @@ class MovesenseClient:
             wall_time=wall_time,
             address=address,
         )
+        # only write parsed rows if measurement is active (passed the startup gate)
         if monitor.measurement_active:
             self._write_parsed_rows(
                 frame=frame,

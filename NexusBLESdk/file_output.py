@@ -11,6 +11,7 @@ def ensure_output_dir() -> Path:
     return output_dir
 
 
+# build a file output for the sensor with a timestamped filename and the given suffix (e.g. "csv")
 def build_output_path(sensor_slug: str, suffix: str) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return ensure_output_dir() / f"{sensor_slug}_{timestamp}.{suffix}"
