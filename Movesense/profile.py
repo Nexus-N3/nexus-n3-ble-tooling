@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import struct
 
 
@@ -68,6 +69,46 @@ def parse_temp_value(payload: bytes) -> float | None:
     if temp > 200:
         temp -= 273.15
     return float(temp)
+
+
+def parse_ecg_sample_timestamps_ms(payload: bytes, sampling_rate_hz: int) -> list[int]:
+    sample_count = parse_ecg_packet_sample_count(payload)
+    if sample_count <= 0:
+        return []
+    packet_timestamp_ms = int(struct.unpack_from("<I", payload, 2)[0])
+    return [
+        packet_timestamp_ms + int(index * 1000 / sampling_rate_hz)
+        for index in range(sample_count)
+    ]
+
+
+def summarize_payload(payload: bytes, sampling_rate_hz: int) -> dict:
+    packet_type = payload[0] if payload else None
+    stream_id = payload[1] if len(payload) >= 2 else None
+    summary = {
+        "packet_type": packet_type,
+        "stream_id": stream_id,
+        "payload_hex": payload.hex(),
+        "payload_len": len(payload),
+    }
+    if packet_type == MOVESENSE_PACKET_TYPE_DATA:
+        if stream_id == MOVESENSE_ECG_STREAM_ID and len(payload) >= MOVESENSE_MIN_PACKET_LEN:
+            sample_timestamps_ms = parse_ecg_sample_timestamps_ms(payload, sampling_rate_hz)
+            summary.update(
+                {
+                    "packet_timestamp_ms": int(struct.unpack_from("<I", payload, 2)[0]),
+                    "packet_timestamp_us": parse_ecg_packet_timestamp_us(payload),
+                    "ecg_sample_count": parse_ecg_packet_sample_count(payload),
+                    "sample_timestamps_ms": sample_timestamps_ms,
+                    "first_sample_timestamp_ms": sample_timestamps_ms[0] if sample_timestamps_ms else None,
+                    "last_sample_timestamp_ms": sample_timestamps_ms[-1] if sample_timestamps_ms else None,
+                }
+            )
+        elif stream_id == MOVESENSE_HR_STREAM_ID:
+            summary["hr_value"] = parse_hr_value(payload)
+        elif stream_id == MOVESENSE_TEMP_STREAM_ID:
+            summary["temp_c"] = parse_temp_value(payload)
+    return summary
 
 
 def build_subscribe_command(stream_id: int, path: str) -> str:

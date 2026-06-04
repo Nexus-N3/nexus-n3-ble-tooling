@@ -79,6 +79,10 @@ def build_parser():
         default=DEFAULT_STARTUP_GATE["gap_grace_seconds"],
     )
     parser.add_argument("--without-response", action="store_true")
+    parser.add_argument(
+        "--dump-raw-file",
+        help="Optional JSONL file for raw Movesense packet capture.",
+    )
     return parser
 
 
@@ -86,6 +90,10 @@ def run(args) -> int:
     with open_gateway_serial(args.port) as ser:
         client = GatewayClient(ser, client_name="movesense_stream_client")
         movesense = MovesenseClient(client)
+        raw_dump_file = None
+        if args.dump_raw_file:
+            raw_dump_file = open(args.dump_raw_file, "w", encoding="utf-8")
+            movesense.set_raw_dump_file(raw_dump_file)
         client.phase = "reset_session"
         client.reset_session()
         client.phase = "hello"
@@ -208,6 +216,8 @@ def run(args) -> int:
             movesense.disconnect_all(timeout_s=args.disconnect_timeout_s)
         finally:
             client.phase = "idle"
+            if raw_dump_file is not None:
+                raw_dump_file.close()
 
     print("")
     for line in monitor.summary_lines(client):

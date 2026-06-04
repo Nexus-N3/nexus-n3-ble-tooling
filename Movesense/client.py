@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 
 from NexusBLESdk import GatewayClient, SensorConnection, StreamFrame
@@ -17,9 +18,10 @@ from .profile import (
     build_stop_command,
     build_subscribe_command,
     parse_hr_value,
+    summarize_payload,
     parse_temp_value,
     select_addresses,
-    )
+)
 
 
 class MovesenseClient:
@@ -27,6 +29,7 @@ class MovesenseClient:
         self.gateway = gateway
         self.connections: list[SensorConnection] = []
         self.sampling_rate_hz = MOVESENSE_SAMPLING_RATES_HZ[0]
+        self._raw_dump_file = None
         self._active_stream_ids = (
             MOVESENSE_ECG_STREAM_ID,
             MOVESENSE_HR_STREAM_ID,
@@ -134,6 +137,9 @@ class MovesenseClient:
             allow_timeout=True,
         )
 
+    def set_raw_dump_file(self, raw_dump_file):
+        self._raw_dump_file = raw_dump_file
+
     def handle_stream_frame(self, frame: StreamFrame, monitor, wall_time: float):
         payload = frame.payload
         if len(payload) < 2:
@@ -142,6 +148,12 @@ class MovesenseClient:
         packet_type = payload[0]
         stream_id = payload[1]
         address = self._address_for_sensor_id(frame.sensor_id)
+
+        self._dump_raw_frame(
+            frame=frame,
+            wall_time=wall_time,
+            address=address,
+        )
 
         if packet_type == MOVESENSE_PACKET_TYPE_GET_RESPONSE:
             return
@@ -168,3 +180,16 @@ class MovesenseClient:
             if connection.sensor_id == sensor_id:
                 return connection.address
         return None
+
+    def _dump_raw_frame(self, *, frame: StreamFrame, wall_time: float, address: str | None):
+        if self._raw_dump_file is None:
+            return
+        entry = {
+            "wall_time_s": wall_time,
+            "sensor_id": frame.sensor_id,
+            "gateway_timestamp_us": frame.gateway_timestamp_us,
+            "address": address,
+        }
+        entry.update(summarize_payload(frame.payload, self.sampling_rate_hz))
+        self._raw_dump_file.write(json.dumps(entry, separators=(",", ":")) + "\n")
+        self._raw_dump_file.flush()
