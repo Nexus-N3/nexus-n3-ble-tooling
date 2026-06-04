@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import struct
 
-
+# N3 Dot GATT profile and packet parsing
 NEXUS_N3_DOT_NAME = "Nexus N3 Dot"
 NEXUS_N3_DOT_IMU_MEASUREMENT_UUID = "8e400002-f315-4f60-9fb8-838830daea50"
 NEXUS_N3_DOT_CONTROL_COMMAND_UUID = "8e410002-f315-4f60-9fb8-838830daea50"
@@ -17,15 +17,7 @@ NEXUS_N3_DOT_STOP_HEX = "02"
 NEXUS_N3_DOT_PACKET = struct.Struct("<BBHIhhhhhh")
 NEXUS_N3_DOT_DEVICE_STATUS_V1 = struct.Struct("<B H I I")
 NEXUS_N3_DOT_DEVICE_STATUS_V2 = struct.Struct("<B H I I I I")
-DEFAULT_STARTUP_GATE = {
-    "enabled": True,
-    "stability_window_seconds": 5.0,
-    "packets_required": 100,
-    "min_rate_hz": 98.0,
-    "min_observation_seconds": 2.0,
-    "max_gap_events": 0,
-    "gap_grace_seconds": 2.0,
-}
+
 DEFAULT_LOCATIONS = [
     "LEFT_ANKLE",
     "RIGHT_ANKLE",
@@ -38,6 +30,17 @@ DEFAULT_LOCATIONS = [
     "LEFT_WRIST",
     "RIGHT_WRIST",
 ]
+
+# should be moved to the sdk if we want to share with other profiles
+DEFAULT_STARTUP_GATE = {
+    "enabled": True,
+    "stability_window_seconds": 5.0,
+    "packets_required": 100,
+    "min_rate_hz": 98.0,
+    "min_observation_seconds": 2.0,
+    "max_gap_events": 0,
+    "gap_grace_seconds": 2.0,
+}
 
 
 def parse_sensor_timestamp(payload: bytes) -> int:

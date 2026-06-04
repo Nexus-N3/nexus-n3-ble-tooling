@@ -125,6 +125,7 @@ class NexusN3DotClient:
         self._parsed_row_writer = parsed_row_writer
 
     def handle_stream_frame(self, frame, *, measurement_active: bool):
+        # simpler means to write data to file if measurement is active.
         if self._parsed_row_writer is None or not measurement_active:
             return
         address = self._address_for_sensor_id(frame.sensor_id)

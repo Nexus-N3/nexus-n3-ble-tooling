@@ -89,6 +89,8 @@ def run(args) -> int:
         nexus_n3_dot = NexusN3DotClient(client)
         parsed_row_writer = None
         parsed_output_path = None
+
+        # setup file write if args are set
         if args.write_to_file:
             parsed_output_path = build_output_path("nexus_n3_dot_stream", "csv")
             parsed_row_writer = CsvRowWriter(
@@ -110,6 +112,8 @@ def run(args) -> int:
                 ],
             )
             nexus_n3_dot.set_parsed_row_writer(parsed_row_writer)
+
+        # intial gateway handshake
         client.phase = "reset_session"
         client.reset_session()
         client.phase = "hello"
@@ -180,7 +184,10 @@ def run(args) -> int:
             client.phase = "monitor"
             startup_deadline = time.monotonic() + args.startup_stability_window_seconds
             deadline = time.monotonic() + args.stream_seconds
+
+            # main recieve loop
             while time.monotonic() < deadline:
+                # this only runs once per loop and only after the startup stability window has elapsed
                 if args.use_startup_gate and not monitor.measurement_active and time.monotonic() >= startup_deadline:
                     stable, unstable = monitor.evaluate_startup_stability()
                     if not stable:
@@ -202,10 +209,12 @@ def run(args) -> int:
                         )
                     continue
 
+                # deals with the frame if the measurement is active
                 nexus_n3_dot.handle_stream_frame(
                     item,
                     measurement_active=monitor.measurement_active,
                 )
+                # always send the frame to the monitor.
                 monitor.handle_stream_frame(item, time.monotonic())
 
             client.phase = "stop_streams"
