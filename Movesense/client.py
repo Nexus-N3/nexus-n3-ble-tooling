@@ -1,3 +1,10 @@
+'''
+    Movesense BLE client for managing connections, configuring streams, and handling incoming data frames.
+     - This client uses the NexusBLESdk to interact with Movesense sensors over BLE.
+     - It provides methods for discovering sensors, connecting to them, configuring the data streams, starting and stopping the streams, and disconnecting.
+     - It also handles incoming stream frames, parsing the payloads according to the Movesense profile, and can dump raw frames or write parsed rows to a specified writer.
+     - The client is designed to work with ECG, heart rate, and temperature data from Movesense sensors, and can be extended to support additional stream types if needed.
+'''
 from __future__ import annotations
 
 import json
