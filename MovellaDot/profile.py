@@ -14,6 +14,7 @@ MOVELLA_SET_RATE_HEX = {
 MOVELLA_START_HEX = "01011A"
 MOVELLA_STOP_HEX = "01001A"
 MOVELLA_MIN_PACKET_LEN = 4
+MOVELLA_IMU_PREFIX = struct.Struct("<I10f")
 DEFAULT_STARTUP_GATE = {
     "enabled": True,
     "stability_window_seconds": 5.0,
@@ -41,6 +42,39 @@ def parse_sensor_timestamp(payload: bytes) -> int:
     if len(payload) < MOVELLA_MIN_PACKET_LEN:
         raise ValueError(f"Movella payload too short: {len(payload)} bytes")
     return int(struct.unpack_from("<I", payload, 0)[0])
+
+
+def parse_packet(payload: bytes) -> dict[str, float | int]:
+    if len(payload) < MOVELLA_IMU_PREFIX.size:
+        raise ValueError(
+            f"Movella payload too short for IMU decode: expected at least {MOVELLA_IMU_PREFIX.size}, got {len(payload)}"
+        )
+    (
+        timestamp_us,
+        quat_w,
+        quat_x,
+        quat_y,
+        quat_z,
+        accel_x,
+        accel_y,
+        accel_z,
+        gyro_x,
+        gyro_y,
+        gyro_z,
+    ) = MOVELLA_IMU_PREFIX.unpack_from(payload)
+    return {
+        "timestamp_us": int(timestamp_us),
+        "quat_w": float(quat_w),
+        "quat_x": float(quat_x),
+        "quat_y": float(quat_y),
+        "quat_z": float(quat_z),
+        "accel_x": float(accel_x),
+        "accel_y": float(accel_y),
+        "accel_z": float(accel_z),
+        "gyro_x": float(gyro_x),
+        "gyro_y": float(gyro_y),
+        "gyro_z": float(gyro_z),
+    }
 
 
 def select_addresses(matches, count: int) -> list[str]:

@@ -54,7 +54,13 @@ class GatewayClient:
         self.send({"type": "reset_session", "request_id": request_id})
         self.wait_for_request(request_id, "reset_session_complete", timeout_s)
 
-    def scan(self, timeout_ms: int, *, name_filter: str | None = None) -> list[DiscoveredDevice]:
+    def scan(
+        self,
+        timeout_ms: int,
+        *,
+        name_filter: str | None = None,
+        name_prefix_filter: str | None = None,
+    ) -> list[DiscoveredDevice]:
         request_id = self.request_id("scan")
         matches: dict[str, DiscoveredDevice] = {}
         self._log(f"Scanning for up to {timeout_ms}ms...")
@@ -68,9 +74,11 @@ class GatewayClient:
                 name = str(msg.get("name", ""))
                 if name_filter is not None and name != name_filter:
                     continue
+                if name_prefix_filter is not None and not name.startswith(name_prefix_filter):
+                    continue
 
                 address = str(msg.get("address", ""))
-                if not address or address in matches:
+                if not address:
                     continue
 
                 service_uuids = tuple(
@@ -78,6 +86,32 @@ class GatewayClient:
                     for value in msg.get("service_uuids", [])
                     if isinstance(value, str)
                 )
+                existing = matches.get(address)
+                if existing is not None:
+                    existing_name = existing.name or ""
+                    should_upgrade_name = not existing_name and bool(name)
+                    existing_rssi = existing.rssi
+                    new_rssi = msg.get("rssi")
+                    should_upgrade_rssi = (
+                        isinstance(new_rssi, int)
+                        and (existing_rssi is None or new_rssi > existing_rssi)
+                    )
+                    if not should_upgrade_name and not should_upgrade_rssi:
+                        continue
+
+                    matches[address] = DiscoveredDevice(
+                        address=address,
+                        name=name if should_upgrade_name else existing.name,
+                        rssi=new_rssi if should_upgrade_rssi else existing.rssi,
+                        service_uuids=service_uuids or existing.service_uuids,
+                        raw=dict(msg),
+                    )
+                    self._log(
+                        f"SCAN UPDATE: {address} "
+                        f"name={matches[address].name} rssi={matches[address].rssi}"
+                    )
+                    continue
+
                 matches[address] = DiscoveredDevice(
                     address=address,
                     name=name,
@@ -85,11 +119,11 @@ class GatewayClient:
                     service_uuids=service_uuids,
                     raw=dict(msg),
                 )
-                self._log(f"SCAN MATCH: {address} name={name} rssi={msg.get('rssi')}")
+                self._log(f"SCAN RESULT: {address} name={name} rssi={msg.get('rssi')}")
                 continue
 
             if msg_type == "scan_complete" and msg.get("request_id") == request_id:
-                self._log(f"SCAN COMPLETE: {len(matches)} device(s) matched")
+                self._log(f"SCAN COMPLETE: {len(matches)} device(s) recorded")
                 return list(matches.values())
 
     def connect(self, addresses: list[str], timeout_s: float) -> list[SensorConnection]:

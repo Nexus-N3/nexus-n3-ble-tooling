@@ -388,8 +388,6 @@ class GenericStreamMonitor:
                 f"expected_rate_hz={stats.expected_rate_hz} "
                 f"gap_events={stats.measurement_gap_events} "
                 f"estimated_dropped_packets={stats.measurement_estimated_dropped_packets} "
-                f"gateway_timestamp_resets={gateway_stats.get('timestamp_reset_events')} "
-                f"gateway_timestamp_discontinuities={gateway_stats.get('timestamp_discontinuity_events')} "
                 f"gateway_lookup_misses={gateway_stats.get('subscription_lookup_misses')} "
                 f"gateway_json_fallbacks={gateway_stats.get('json_fallback_notifications')} "
                 f"gateway_queue_accepted={gateway_stats.get('notification_queue_accepted')} "

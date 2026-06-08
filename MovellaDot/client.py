@@ -12,6 +12,7 @@ from .profile import (
     MOVELLA_START_HEX,
     MOVELLA_START_STOP_STREAM_UUID,
     MOVELLA_STOP_HEX,
+    parse_packet,
     select_addresses,
 )
 
@@ -20,6 +21,7 @@ class MovellaDotClient:
     def __init__(self, gateway: GatewayClient):
         self.gateway = gateway
         self.connections: list[SensorConnection] = []
+        self._parsed_row_writer = None
 
     def discover(self, sensor_count: int, scan_timeout_ms: int) -> list[str]:
         matches = self.gateway.scan(scan_timeout_ms, name_filter=MOVELLA_NAME)
@@ -124,3 +126,28 @@ class MovellaDotClient:
             timeout_s=timeout_s,
             allow_timeout=True,
         )
+
+    def set_parsed_row_writer(self, parsed_row_writer):
+        self._parsed_row_writer = parsed_row_writer
+
+    def handle_stream_frame(self, frame, *, measurement_active: bool):
+        if self._parsed_row_writer is None or not measurement_active:
+            return
+        address = self._address_for_sensor_id(frame.sensor_id)
+        packet = parse_packet(frame.payload)
+        self._parsed_row_writer.write_row(
+            {
+                "address": address or "",
+                "sensor_id": frame.sensor_id,
+                "gateway_timestamp_us": frame.gateway_timestamp_us,
+                **packet,
+            }
+        )
+
+    def _address_for_sensor_id(self, sensor_id: int | None) -> str | None:
+        if sensor_id is None:
+            return None
+        for connection in self.connections:
+            if connection.sensor_id == sensor_id:
+                return connection.address
+        return None

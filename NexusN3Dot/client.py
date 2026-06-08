@@ -13,6 +13,7 @@ from .profile import (
     NEXUS_N3_DOT_START_HEX,
     NEXUS_N3_DOT_STOP_HEX,
     parse_device_status,
+    parse_packet,
     select_addresses,
 )
 
@@ -21,6 +22,7 @@ class NexusN3DotClient:
     def __init__(self, gateway: GatewayClient):
         self.gateway = gateway
         self.connections: list[SensorConnection] = []
+        self._parsed_row_writer = None
 
     def discover(self, sensor_count: int, scan_timeout_ms: int) -> list[str]:
         matches = self.gateway.scan(scan_timeout_ms, name_filter=NEXUS_N3_DOT_NAME)
@@ -119,6 +121,24 @@ class NexusN3DotClient:
             results[connection.address] = parse_device_status(payload)
         return results
 
+    def set_parsed_row_writer(self, parsed_row_writer):
+        self._parsed_row_writer = parsed_row_writer
+
+    def handle_stream_frame(self, frame, *, measurement_active: bool):
+        # simpler means to write data to file if measurement is active.
+        if self._parsed_row_writer is None or not measurement_active:
+            return
+        address = self._address_for_sensor_id(frame.sensor_id)
+        packet = parse_packet(frame.payload)
+        self._parsed_row_writer.write_row(
+            {
+                "address": address or "",
+                "sensor_id": frame.sensor_id,
+                "gateway_timestamp_us": frame.gateway_timestamp_us,
+                **packet,
+            }
+        )
+
     def _send_start_command(self, address: str, *, without_response: bool) -> float:
         return self.gateway.write_gatt_nowait(
             address,
@@ -134,3 +154,11 @@ class NexusN3DotClient:
             payload_hex,
             without_response=without_response,
         )
+
+    def _address_for_sensor_id(self, sensor_id: int | None) -> str | None:
+        if sensor_id is None:
+            return None
+        for connection in self.connections:
+            if connection.sensor_id == sensor_id:
+                return connection.address
+        return None

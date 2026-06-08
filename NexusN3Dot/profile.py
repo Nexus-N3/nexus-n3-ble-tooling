@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import struct
 
-
+# N3 Dot GATT profile and packet parsing
 NEXUS_N3_DOT_NAME = "Nexus N3 Dot"
 NEXUS_N3_DOT_IMU_MEASUREMENT_UUID = "8e400002-f315-4f60-9fb8-838830daea50"
 NEXUS_N3_DOT_CONTROL_COMMAND_UUID = "8e410002-f315-4f60-9fb8-838830daea50"
@@ -17,15 +17,7 @@ NEXUS_N3_DOT_STOP_HEX = "02"
 NEXUS_N3_DOT_PACKET = struct.Struct("<BBHIhhhhhh")
 NEXUS_N3_DOT_DEVICE_STATUS_V1 = struct.Struct("<B H I I")
 NEXUS_N3_DOT_DEVICE_STATUS_V2 = struct.Struct("<B H I I I I")
-DEFAULT_STARTUP_GATE = {
-    "enabled": True,
-    "stability_window_seconds": 5.0,
-    "packets_required": 100,
-    "min_rate_hz": 98.0,
-    "min_observation_seconds": 2.0,
-    "max_gap_events": 0,
-    "gap_grace_seconds": 2.0,
-}
+
 DEFAULT_LOCATIONS = [
     "LEFT_ANKLE",
     "RIGHT_ANKLE",
@@ -39,6 +31,17 @@ DEFAULT_LOCATIONS = [
     "RIGHT_WRIST",
 ]
 
+# should be moved to the sdk if we want to share with other profiles
+DEFAULT_STARTUP_GATE = {
+    "enabled": True,
+    "stability_window_seconds": 5.0,
+    "packets_required": 100,
+    "min_rate_hz": 98.0,
+    "min_observation_seconds": 2.0,
+    "max_gap_events": 0,
+    "gap_grace_seconds": 2.0,
+}
+
 
 def parse_sensor_timestamp(payload: bytes) -> int:
     if len(payload) != NEXUS_N3_DOT_PACKET.size:
@@ -50,6 +53,40 @@ def parse_sensor_timestamp(payload: bytes) -> int:
     if version != 1:
         raise ValueError(f"Unsupported Nexus N3 Dot packet version: {version}")
     return int(timestamp_us)
+
+
+def parse_packet(payload: bytes) -> dict[str, int]:
+    if len(payload) != NEXUS_N3_DOT_PACKET.size:
+        raise ValueError(
+            f"Nexus N3 Dot payload wrong size: expected {NEXUS_N3_DOT_PACKET.size}, got {len(payload)}"
+        )
+
+    (
+        version,
+        flags,
+        sequence,
+        timestamp_us,
+        accel_x_mg,
+        accel_y_mg,
+        accel_z_mg,
+        gyro_x_mdps,
+        gyro_y_mdps,
+        gyro_z_mdps,
+    ) = NEXUS_N3_DOT_PACKET.unpack(payload)
+    if version != 1:
+        raise ValueError(f"Unsupported Nexus N3 Dot packet version: {version}")
+    return {
+        "version": int(version),
+        "flags": int(flags),
+        "sequence": int(sequence),
+        "timestamp_us": int(timestamp_us),
+        "accel_x_mg": int(accel_x_mg),
+        "accel_y_mg": int(accel_y_mg),
+        "accel_z_mg": int(accel_z_mg),
+        "gyro_x_mdps": int(gyro_x_mdps),
+        "gyro_y_mdps": int(gyro_y_mdps),
+        "gyro_z_mdps": int(gyro_z_mdps),
+    }
 
 
 def select_addresses(matches, count: int) -> list[str]:

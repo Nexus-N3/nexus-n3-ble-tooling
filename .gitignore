@@ -28,6 +28,7 @@ htmlcov/
 .env
 .env.*
 *.log
+output-files/
 
 # Editor and OS files
 .vscode/
