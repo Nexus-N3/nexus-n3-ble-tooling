@@ -46,6 +46,7 @@ class SensorStreamStats:
     measurement_gap_events: int = 0
     measurement_estimated_dropped_packets: int = 0
     host_parsed_frames: int = 0
+    detect_gaps: bool = True
 
     @property
     def expected_delta_us(self) -> float:
@@ -165,6 +166,9 @@ class SensorStreamStats:
         self.measurement_packets_received += 1
 
     def _record_gap_if_needed(self, timestamp: int | None, previous_timestamp: int | None, mode: str):
+        if not self.detect_gaps:
+            return
+
         if timestamp is None or previous_timestamp is None:
             return
 
@@ -201,11 +205,17 @@ class GenericStreamMonitor:
         connections: list[SensorConnection],
         labels_by_address: dict[str, str | None],
         expected_rate_hz: int,
-        timestamp_parser: Callable[[bytes], int],
+        timestamp_parser: Callable[[bytes], int] | None = None,
+        timestamp_source: Callable[[StreamFrame], int | None] | None = None,
+        detect_gaps: bool = True,
         startup_gate: StartupGateConfig,
         verbose: bool = True,
     ):
-        self.timestamp_parser = timestamp_parser
+        if timestamp_source is None:
+            if timestamp_parser is None:
+                raise ValueError("GenericStreamMonitor requires either timestamp_parser or timestamp_source")
+            timestamp_source = lambda frame: timestamp_parser(frame.payload)
+        self.timestamp_source = timestamp_source
         self.startup_gate = startup_gate
         self.verbose = verbose
         self.measurement_active = not startup_gate.enabled
@@ -226,6 +236,7 @@ class GenericStreamMonitor:
                 sensor_id=connection.sensor_id,
                 label=labels_by_address.get(connection.address),
                 expected_rate_hz=expected_rate_hz,
+                detect_gaps=detect_gaps,
             )
 
     def announce_startup_state(self):
@@ -250,7 +261,7 @@ class GenericStreamMonitor:
             self.unknown_sensor_ids[frame.sensor_id] += 1
             return
 
-        timestamp = self.timestamp_parser(frame.payload)
+        timestamp = self.timestamp_source(frame)
         self.stats_by_address[address].record_sample(
             timestamp,
             wall_time,

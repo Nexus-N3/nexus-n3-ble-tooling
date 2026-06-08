@@ -46,11 +46,20 @@ Typical GatewayClient Methods
 - ``read_gatt()`` reads a characteristic value.
 - ``disconnect()`` closes one or more active links.
 - ``get_status_snapshot()`` collects transport and BLE receive diagnostics.
+  The BLE receive portion is gateway-transport-oriented, while sensor-specific
+  continuity checks remain the responsibility of the host sensor profile.
 
 Monitoring Pattern
 ------------------
 
-The stream clients use ``GenericStreamMonitor`` with a sensor-specific timestamp parser. This keeps transport handling generic while allowing each sensor package to define how packet timestamps are interpreted.
+The stream clients use ``GenericStreamMonitor`` with a sensor-specific timestamp
+parser or frame timestamp source. This keeps transport handling generic while
+allowing each sensor package to define how packet timestamps are interpreted.
+
+In practice, this means sensors such as ``NexusN3Dot`` can use embedded payload
+timestamps, while sensors such as ``MetaWear`` can fall back to gateway arrival
+timestamps for rate and startup timing without pretending the payload contains a
+sensor-side timestamp.
 
 When startup gating is enabled, the monitor:
 
