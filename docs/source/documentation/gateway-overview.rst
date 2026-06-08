@@ -28,6 +28,12 @@ The gateway currently exposes:
 - gateway transport statistics
 - BLE notification receive statistics
 
+The BLE receive statistics are intentionally transport-oriented. They report
+what the gateway received and forwarded, such as notification counts, queue
+accept/drop/flush counters, stream enqueue success or drop counters, and first
+or last gateway arrival timestamps. They do not attempt to infer embedded
+sensor timestamps or sensor-side packet loss from arbitrary payload bytes.
+
 Common command families include:
 
 - ``hello``
@@ -42,4 +48,3 @@ Why Customers Should Care
 -------------------------
 
 For customer integrations, the gateway provides a consistent control plane across supported sensors. The Python SDK in this repository exists to hide protocol details, enforce common run sequences, and make gateway diagnostics immediately usable.
-
