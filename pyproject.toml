@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-n3-tooling"
+version = "0.1.0"
+description = "Python tooling and sample clients for Nexus N3 BLE gateway sensors."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Rightstep Health" }]
+dependencies = [
+    "pyserial>=3.5,<4",
+]
+
+[project.scripts]
+nexus-n3 = "nexus_n3_tooling.cli:main"
+nexus-n3-capture = "Capture.cli:main"
+nexus-n3-movella-dot = "MovellaDot.stream_client:main"
+nexus-n3-nexus-n3-dot = "NexusN3Dot.stream_client:main"
+nexus-n3-movesense = "Movesense.stream_client:main"
+nexus-n3-metawear = "MetaWear.stream_client:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "nexus_n3_tooling*",
+    "NexusBLESdk*",
+    "MovellaDot*",
+    "NexusN3Dot*",
+    "Movesense*",
+    "MetaWear*",
+    "Capture*",
+]
+exclude = ["tests*", "docs*", "output-files*", "__pycache__*"]

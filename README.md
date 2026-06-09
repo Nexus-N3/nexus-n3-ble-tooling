@@ -10,6 +10,43 @@ The layout is split into two parts:
 
 Additional sensor integrations can be added beside `MovellaDot/` using the same structure.
 
+
+## Install from pip
+
+Once this package is published to PyPI, users can install the BLE tooling with:
+
+```bash
+pip install nexus-n3-tooling
+```
+
+The install exposes a `nexus-n3` command that can run the main clients by module-style name or by the shorter aliases shown below. Arguments after the client name are passed through to that client.
+
+Examples:
+
+```bash
+nexus-n3 MovellaDot/stream_client --sensor-count 1 --stream-seconds 10
+nexus-n3 NexusN3Dot/stream_client --sensor-count 1 --stream-seconds 10
+nexus-n3 Movesense/stream_client --sensor-count 1 --stream-seconds 10
+nexus-n3 MetaWear/stream_client --sensor-count 1 --stream-seconds 10
+nexus-n3 capture --sensor-type movelladot --sensor-count 2 --tag walk_trial
+```
+
+Dedicated console scripts are also installed:
+
+```bash
+nexus-n3-movella-dot --sensor-count 1 --stream-seconds 10
+nexus-n3-nexus-n3-dot --sensor-count 1 --stream-seconds 10
+nexus-n3-movesense --sensor-count 1 --stream-seconds 10
+nexus-n3-metawear --sensor-count 1 --stream-seconds 10
+nexus-n3-capture --sensor-type movelladot --sensor-count 2 --tag walk_trial
+```
+
+For local development, install from the repo root with:
+
+```bash
+pip install -e .
+```
+
 ## Capture Client
 
 The repository now includes an interactive capture workflow under `Capture/cli.py`.
@@ -46,12 +83,12 @@ Example:
 
 To start with the supported samples:
 
-- run `python Capture/cli.py`
-- see [MovellaDot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling/MovellaDot/README.md)
-- run `python MovellaDot/stream_client.py --sensor-count 1 --stream-seconds 10`
-- see [NexusN3Dot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling/NexusN3Dot/README.md)
-- run `python NexusN3Dot/stream_client.py --sensor-count 1 --stream-seconds 10`
-- run `python Movesense/stream_client.py --sensor-count 1 --stream-seconds 10`
+- run `nexus-n3 capture` after installing the package, or `python Capture/cli.py` from a source checkout
+- see [MovellaDot/README.md](MovellaDot/README.md)
+- run `nexus-n3 MovellaDot/stream_client --sensor-count 1 --stream-seconds 10` after installing the package, or `python MovellaDot/stream_client.py --sensor-count 1 --stream-seconds 10` from a source checkout
+- see [NexusN3Dot/README.md](NexusN3Dot/README.md)
+- run `nexus-n3 NexusN3Dot/stream_client --sensor-count 1 --stream-seconds 10` after installing the package, or `python NexusN3Dot/stream_client.py --sensor-count 1 --stream-seconds 10` from a source checkout
+- run `nexus-n3 Movesense/stream_client --sensor-count 1 --stream-seconds 10` after installing the package, or `python Movesense/stream_client.py --sensor-count 1 --stream-seconds 10` from a source checkout
 
 ## Design Intent
 
