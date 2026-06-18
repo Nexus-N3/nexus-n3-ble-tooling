@@ -126,6 +126,118 @@ class GatewayClient:
                 self._log(f"SCAN COMPLETE: {len(matches)} device(s) recorded")
                 return list(matches.values())
 
+    # new RF Survey methods
+    def rf_survey_start(
+        self,
+        targets: list[str],
+        *,
+        window_ms: int = 5000,
+        duration_ms: int = 60000,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_start")
+
+        self.send(
+            {
+                "type": "rf_survey_start",
+                "request_id": request_id,
+                "targets": targets,
+                "window_ms": window_ms,
+                "duration_ms": duration_ms,
+            }
+        )
+
+        return self.wait_for_request(
+            request_id,
+            "rf_survey_started",
+            timeout_s if timeout_s is not None else 5.0,
+        )
+
+    def rf_survey_status(
+        self,
+        *,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_status")
+
+        self.send(
+            {
+                "type": "rf_survey_status",
+                "request_id": request_id,
+            }
+        )
+
+        status = self.wait_for_request(
+            request_id,
+            "rf_survey_status",
+            timeout_s,
+        )
+
+        targets: list[dict[str, Any]] = []
+
+        target_count = int(status.get("target_count", 0))
+
+        for _ in range(target_count):
+            target_status = self.wait_for_request(
+                request_id,
+                "rf_survey_target_status",
+                timeout_s,
+            )
+            targets.append(target_status)
+
+        complete = self.wait_for_request(
+            request_id,
+            "rf_survey_status_complete",
+            timeout_s,
+        )
+
+        status["targets"] = targets
+        status["complete"] = complete
+
+        return status
+
+    def rf_survey_stop(
+        self,
+        *,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_stop")
+
+        self.send(
+            {
+                "type": "rf_survey_stop",
+                "request_id": request_id,
+            }
+        )
+
+        stopped = self.wait_for_request(
+            request_id,
+            "rf_survey_stopped",
+            timeout_s,
+        )
+
+        targets: list[dict[str, Any]] = []
+        target_count = int(stopped.get("target_count", 0))
+
+        for _ in range(target_count):
+            target_final = self.wait_for_request(
+                request_id,
+                "rf_survey_target_final",
+                timeout_s,
+            )
+            targets.append(target_final)
+
+        complete = self.wait_for_request(
+            request_id,
+            "rf_survey_stop_complete",
+            timeout_s,
+        )
+
+        stopped["targets"] = targets
+        stopped["complete"] = complete
+
+        return stopped
+    
     def connect(self, addresses: list[str], timeout_s: float) -> list[SensorConnection]:
         request_id = self.request_id("connect")
         pending = list(addresses)
