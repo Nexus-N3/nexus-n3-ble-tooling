@@ -14,8 +14,8 @@ RF Survey Clients
 Primary behavior:
 
 - start RF Survey against selected BLE target addresses
-- poll RF Survey status during the configured rolling window
-- report per-target score and quality during the survey
+- listen for pushed ``rf_survey_status`` window updates from the gateway
+- report per-target score, quality, trend, and RSSI during the survey
 - stop RF Survey and print the final per-target summary returned by ``rf_survey_stop()``
 
 ``RFSurvey/client.py`` is the single-target smoke-test path.
@@ -31,7 +31,6 @@ Primary options for ``RFSurvey/mixed_client.py``:
 - ``--scan-timeout-ms`` to control discovery duration
 - ``--window-ms`` to control the RF Survey rolling window
 - ``--duration-ms`` to control the RF Survey duration
-- ``--poll-interval-s`` to control status polling cadence
 
 Example:
 

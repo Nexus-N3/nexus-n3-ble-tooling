@@ -79,7 +79,7 @@ The repository also includes RF Survey clients under `RFSurvey/`.
 
 - `RFSurvey/mixed_client.py`
   Mixed-target RF Survey client. This client selects a combined target set across the supported sensor families and prints:
-  - rolling-window score and quality per target
+  - pushed per-window score, quality, trend, and RSSI summary per target
   - the final per-target report returned by `rf_survey_stop()`
 
 Example:

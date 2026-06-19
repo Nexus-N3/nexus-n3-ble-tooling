@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from MetaWear.profile import is_metawear_name
 from MovellaDot.profile import MOVELLA_NAME
@@ -16,6 +16,61 @@ from NexusN3Dot.profile import NEXUS_N3_DOT_NAME
 
 
 Selector = Callable[[str], bool]
+
+
+def _format_variation(target: dict) -> str:
+    return (
+        f"score={target.get('score', 0)} "
+        f"quality={target.get('quality', 'missing')} "
+        f"trend={target.get('trend', 'unknown')} "
+        f"best_score={target.get('best_score', target.get('score', 0))} "
+        f"worst_score={target.get('worst_score', target.get('score', 0))} "
+        f"mean_score={target.get('mean_score', target.get('score', 0))} "
+        f"score_sample_count={target.get('score_sample_count', 0)}"
+    )
+
+
+def _format_live(target: dict) -> str:
+    return (
+        f"score={target.get('score', 0)} "
+        f"quality={target.get('quality', 'missing')} "
+        f"trend={target.get('trend', 'unknown')} "
+        f"rssi_avg={target.get('rssi_avg', 0)} "
+        f"observations={target.get('observations', 0)} "
+        f"last_seen_age_ms={target.get('last_seen_age_ms', 0)}"
+    )
+
+
+def _rf_survey_request_timeout_s(window_ms: int) -> float:
+    return max(10.0, (window_ms / 1000.0) + 4.0)
+
+
+def _window_wait_timeout_s(window_ms: int) -> float:
+    return max(10.0, (window_ms / 1000.0) + 5.0)
+
+
+def _wait_for_window_status(
+    gateway: GatewayClient,
+    *,
+    timeout_s: float,
+) -> dict[str, Any] | None:
+    try:
+        return gateway.wait_for_rf_survey_window_status(timeout_s=timeout_s)
+    except TimeoutError as exc:
+        print(f"RF SURVEY STATUS TIMEOUT: {exc}")
+        return None
+
+
+def _request_stop(
+    gateway: GatewayClient,
+    *,
+    timeout_s: float,
+) -> dict[str, Any] | None:
+    try:
+        return gateway.rf_survey_stop(timeout_s=timeout_s)
+    except TimeoutError as exc:
+        print(f"RF SURVEY STOP TIMEOUT: {exc}")
+        return None
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -30,7 +85,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--scan-timeout-ms", type=int, default=5000)
     parser.add_argument("--window-ms", type=int, default=5000)
     parser.add_argument("--duration-ms", type=int, default=30000)
-    parser.add_argument("--poll-interval-s", type=float, default=1.0)
     parser.add_argument("--no-reset", action="store_true")
 
     parser.add_argument("--movella-count", type=int, default=0)
@@ -84,8 +138,7 @@ def _print_window(status: dict) -> None:
     )
     for target in status.get("targets", []):
         print(
-            f"  {target['address']}: score={target.get('score')} "
-            f"quality={target.get('quality')}"
+            f"  {target['address']}: {_format_live(target)}"
         )
 
 
@@ -97,15 +150,18 @@ def _print_final(stopped: dict) -> None:
     )
     for target in stopped.get("targets", []):
         print(
-            f"  {target['address']}: score={target.get('score')} "
-            f"quality={target.get('quality')} "
+            f"  {target['address']}: {_format_variation(target)} "
             f"observations_total={target.get('observations_total')} "
-            f"last_seen_age_ms={target.get('last_seen_age_ms')}"
+            f"last_seen_age_ms={target.get('last_seen_age_ms')} "
+            f"best_score_elapsed_ms={target.get('best_score_elapsed_ms', 0)} "
+            f"worst_score_elapsed_ms={target.get('worst_score_elapsed_ms', 0)}"
         )
 
 
 def main() -> None:
     args = _build_parser().parse_args()
+    status_timeout_s = _rf_survey_request_timeout_s(args.window_ms)
+    window_wait_timeout_s = _window_wait_timeout_s(args.window_ms)
 
     requested_total = (
         args.movella_count
@@ -182,29 +238,39 @@ def main() -> None:
             targets,
             window_ms=args.window_ms,
             duration_ms=args.duration_ms,
+            timeout_s=status_timeout_s,
         )
         print("STARTED:", started)
 
-        poll_deadline = time.monotonic() + (args.duration_ms / 1000.0)
-        stop_margin_s = max(0.25, args.poll_interval_s)
-        while time.monotonic() + stop_margin_s < poll_deadline:
-            time.sleep(max(0.1, args.poll_interval_s))
-            status = gateway.rf_survey_status()
-            _print_window(status)
-            if status.get("active") is not True:
-                break
-
-        final_status = gateway.rf_survey_status()
-        _print_window(final_status)
-
-        if final_status.get("active") is not True:
-            raise RuntimeError(
-                "RF survey became inactive before explicit stop; "
-                "increase duration_ms or lower poll_interval_s."
+        print("Waiting for pushed RF survey window status...")
+        survey_deadline = time.monotonic() + (args.duration_ms / 1000.0)
+        grace_deadline = survey_deadline + max(5.0, args.window_ms / 1000.0)
+        while time.monotonic() < grace_deadline:
+            status = _wait_for_window_status(
+                gateway,
+                timeout_s=window_wait_timeout_s,
             )
+            if status is None:
+                if time.monotonic() >= survey_deadline:
+                    break
+                continue
+            _print_window(status)
+            if status.get("state") == "stopping":
+                break
+            if status.get("active") is not True and time.monotonic() < survey_deadline:
+                raise RuntimeError(
+                    f"Expected active=true or state=stopping during survey, got: {status}"
+                )
 
         print("Stopping RF survey...")
-        stopped = gateway.rf_survey_stop()
+        stopped = _request_stop(
+            gateway,
+            timeout_s=status_timeout_s,
+        )
+        if stopped is None:
+            print("RF Survey stop did not return a response. Gateway may be stalled.")
+            return
+
         _print_final(stopped)
 
 
