@@ -29,9 +29,12 @@ htmlcov/
 .env.*
 *.log
 output-files/
+tests/
 
 # Editor and OS files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+backlog.txt

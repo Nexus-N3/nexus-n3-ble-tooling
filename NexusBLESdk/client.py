@@ -126,6 +126,90 @@ class GatewayClient:
                 self._log(f"SCAN COMPLETE: {len(matches)} device(s) recorded")
                 return list(matches.values())
 
+    # new RF Survey methods
+    def rf_survey_start(
+        self,
+        targets: list[str],
+        *,
+        window_ms: int = 5000,
+        duration_ms: int = 60000,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_start")
+
+        self.send(
+            {
+                "type": "rf_survey_start",
+                "request_id": request_id,
+                "targets": targets,
+                "window_ms": window_ms,
+                "duration_ms": duration_ms,
+            }
+        )
+
+        return self.wait_for_request(
+            request_id,
+            "rf_survey_started",
+            timeout_s if timeout_s is not None else 5.0,
+        )
+
+    def rf_survey_status(
+        self,
+        *,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_status")
+
+        self.send(
+            {
+                "type": "rf_survey_status",
+                "request_id": request_id,
+            }
+        )
+
+        return self._wait_for_rf_survey_response(
+            request_id=request_id,
+            start_type="rf_survey_status",
+            target_type="rf_survey_target_status",
+            complete_type="rf_survey_status_complete",
+            timeout_s=timeout_s,
+        )
+
+    def wait_for_rf_survey_window_status(
+        self,
+        *,
+        timeout_s: float = 10.0,
+    ) -> dict[str, Any]:
+        return self._wait_for_rf_survey_response(
+            request_id=None,
+            start_type="rf_survey_status",
+            target_type="rf_survey_target_status",
+            complete_type="rf_survey_status_complete",
+            timeout_s=timeout_s,
+        )
+
+    def rf_survey_stop(
+        self,
+        *,
+        timeout_s: float = 5.0,
+    ) -> dict[str, Any]:
+        request_id = self.request_id("rf_survey_stop")
+
+        self.send(
+            {
+                "type": "rf_survey_stop",
+                "request_id": request_id,
+            }
+        )
+
+        return self._wait_for_rf_survey_response(
+            request_id=request_id,
+            start_type="rf_survey_stopped",
+            target_type="rf_survey_target_final",
+            complete_type="rf_survey_stop_complete",
+            timeout_s=timeout_s,
+        )
+    
     def connect(self, addresses: list[str], timeout_s: float) -> list[SensorConnection]:
         request_id = self.request_id("connect")
         pending = list(addresses)
@@ -415,6 +499,85 @@ class GatewayClient:
                 continue
 
         raise TimeoutError(f"Timed out waiting for {success_type} request_id={request_id}")
+
+    def _wait_for_rf_survey_response(
+        self,
+        *,
+        request_id: str | None,
+        start_type: str,
+        target_type: str,
+        complete_type: str,
+        timeout_s: float,
+    ) -> dict[str, Any]:
+        deadline = time.time() + timeout_s
+        start_msg: dict[str, Any] | None = None
+        complete_msg: dict[str, Any] | None = None
+        targets: list[dict[str, Any]] = []
+        target_count: int | None = None
+        rf_survey_message_types = {
+            "rf_survey_status",
+            "rf_survey_target_status",
+            "rf_survey_status_complete",
+            "rf_survey_stopped",
+            "rf_survey_target_final",
+            "rf_survey_stop_complete",
+        }
+
+        while time.time() < deadline:
+            msg = self.read_json(timeout_s=max(0.1, deadline - time.time()))
+            msg_type = msg.get("type")
+            msg_request_id = msg.get("request_id")
+
+            if request_id is not None and msg_type == "error" and msg_request_id == request_id:
+                raise RuntimeError(
+                    f"Gateway command failed: {msg.get('message')} ({msg.get('error_code')})"
+                )
+
+            if request_id is None:
+                if msg_type in rf_survey_message_types and msg_request_id not in {None, ""}:
+                    continue
+            elif msg_request_id != request_id:
+                if msg_type in rf_survey_message_types:
+                    self._log(
+                        "RF SURVEY RESYNC: "
+                        f"dropped stale {msg_type} request_id={msg_request_id}"
+                    )
+                continue
+
+            if msg_type == start_type:
+                start_msg = msg
+                target_count = int(start_msg.get("target_count", 0))
+                continue
+
+            if msg_type == target_type:
+                if target_count is None or len(targets) < target_count:
+                    targets.append(msg)
+                continue
+
+            if msg_type == complete_type:
+                complete_msg = msg
+            else:
+                continue
+
+            if start_msg is None:
+                continue
+
+            expected_targets = max(0, target_count or 0)
+            if len(targets) < expected_targets:
+                continue
+
+            start_msg["targets"] = targets
+            start_msg["complete"] = complete_msg
+            return start_msg
+
+        raise TimeoutError(
+            "Timed out waiting for RF Survey response "
+            f"request_id={request_id if request_id is not None else '<push>'} "
+            f"start_type={start_type} "
+            f"have_start={start_msg is not None} "
+            f"targets={len(targets)}/{target_count if target_count is not None else '?'} "
+            f"have_complete={complete_msg is not None}"
+        )
 
     def read_item(self, timeout_s: float = 10.0):
         if self.cached_stream_frames:

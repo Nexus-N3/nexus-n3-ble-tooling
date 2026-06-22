@@ -13,6 +13,7 @@ Repository Layout
 - ``NexusN3Dot`` contains the Nexus N3 Dot client and sample CLI.
 - ``Movesense`` contains the Movesense client and sample CLI.
 - ``MetaWear`` contains the MetaWear acceleration client and sample CLI.
+- ``RFSurvey`` contains RF Survey clients for single-target and mixed-sensor survey workflows.
 
 Repository paths:
 
@@ -21,6 +22,7 @@ Repository paths:
 - `NexusN3Dot/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/NexusN3Dot>`_
 - `Movesense/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/Movesense>`_
 - `MetaWear/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/MetaWear>`_
+- `RFSurvey/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/RFSurvey>`_
 
 Design Intent
 -------------
@@ -44,6 +46,7 @@ The sensor-specific packages are responsible for:
 - sensor-specific configuration sequences
 - timestamp parsing
 - customer-facing CLI defaults and workflows
+- RF Survey target selection and reporting workflows
 
 Supported Customer Entry Points
 -------------------------------
@@ -53,3 +56,5 @@ Supported Customer Entry Points
 - ``NexusBLESdk`` for custom host software built on the same gateway protocol
 - ``MetaWear/stream_client.py`` for MetaWear acceleration streaming validation
 - ``Movesense/stream_client.py`` for Movesense streaming validation
+- ``RFSurvey/client.py`` for single-target RF Survey validation
+- ``RFSurvey/mixed_client.py`` for mixed-sensor RF Survey validation across supported sensor families

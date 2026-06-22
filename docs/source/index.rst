@@ -20,6 +20,8 @@ Quick Highlights
 ----------------
 
 - Shared ``NexusBLESdk`` API for transport, command handling, stream parsing, and monitoring.
-- Sensor-specific clients for Movella DOT and Nexus N3 Dot.
+- RF Survey workflows for single-target and mixed-sensor BLE signal mapping.
+- Sensor-specific clients for Movella DOT, Nexus N3 Dot, Movesense, and MetaWear.
 - Customer-facing sample CLIs for discovery, connection, configuration, streaming, and diagnostics.
+- Product feature overview material for the currently implemented gateway and tooling capabilities.
 - Gateway overview material that explains where the embedded BLE gateway fits inside Nexus N3 Edge.

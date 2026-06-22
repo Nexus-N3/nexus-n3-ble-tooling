@@ -46,7 +46,15 @@ from Movesense.profile import (
 # cli argument parsing
 def build_parser():
     parser = argparse.ArgumentParser(description="Movesense sample client built on NexusBLESdk.")
-    parser.add_argument("--port", default=DEFAULT_PORT)
+    parser.add_argument(
+        "--port",
+        default=DEFAULT_PORT,
+        help=(
+            "Gateway serial port path or alias. "
+            "Examples: nexus_n3_gw, nordic_dev, auto, "
+            "/dev/serial/by-id/usb-ZEPHYR_IFMCU_CMSIS-DAP_..."
+        ),
+    )
     parser.add_argument("--sensor-count", type=int, default=1)
     parser.add_argument("--scan-timeout-ms", type=int, default=5000)
     parser.add_argument("--connect-timeout-s", type=float, default=30.0)

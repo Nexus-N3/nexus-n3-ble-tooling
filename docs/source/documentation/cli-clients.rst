@@ -6,6 +6,67 @@ The repository includes customer-facing sample clients built on the shared SDK.
 Public repository root: `Nexus-N3/rs-nexus-ble-tooling <https://github.com/Nexus-N3/rs-nexus-ble-tooling>`_.
 
 
+RF Survey Clients
+-----------------
+
+``RFSurvey/client.py`` and ``RFSurvey/mixed_client.py`` provide RF Survey workflows on top of the shared gateway SDK.
+
+Primary behavior:
+
+- discover and select RF Survey target addresses before the survey starts
+- start RF Survey against the selected BLE target addresses
+- listen for pushed ``rf_survey_status`` window updates from the gateway
+- report per-target score, quality, trend, and RSSI during the survey
+- stop RF Survey and print the final per-target summary returned by ``rf_survey_stop()``
+
+During the survey phase, the gateway still uses duplicate advertisements internally so RF Survey can compute observations, RSSI statistics, scores, and trends. Those repeated advertisements are not forwarded to the host as normal ``scan_result`` discovery JSON; the host only receives RF Survey status and final summary messages once the survey is running.
+
+``RFSurvey/client.py`` is the single-target smoke-test path.
+
+``RFSurvey/mixed_client.py`` is the mixed-sensor path. It performs one scan, selects a combined target set across the supported sensor families, and starts RF Survey on that merged list.
+
+Primary options for ``RFSurvey/mixed_client.py``:
+
+- ``--movella-count`` to select how many Movella DOT sensors to include
+- ``--movesense-count`` to select how many Movesense sensors to include
+- ``--metawear-count`` to select how many MetaWear sensors to include
+- ``--nexus-n3-dot-count`` to select how many Nexus N3 Dot sensors to include
+- ``--scan-timeout-ms`` to control discovery duration
+- ``--window-ms`` to control the RF Survey rolling window
+- ``--duration-ms`` to control the RF Survey duration
+
+Example:
+
+- ``python -m RFSurvey.mixed_client --movella-count 2 --movesense-count 1 --window-ms 3000 --duration-ms 15000``
+- ``python -m RFSurvey.client --window-ms 5000 --duration-ms 20000``
+
+
+Capture Client
+--------------
+
+``Capture/cli.py`` provides the operator-facing capture session workflow across the supported sensor families.
+
+Primary behavior:
+
+- choose a supported sensor family
+- choose the sensor count
+- assign one location per connected sensor
+- optionally use guided identify for Movella DOT placement
+- start and stop the capture manually
+- type ``quit`` at any interactive setup prompt, or press ``Ctrl+C``, to cancel and disconnect connected sensors
+- write a dedicated session directory with manifest and output files under ``output-files/captures/``
+
+Primary options:
+
+- ``--sensor-type`` to choose ``movelladot``, ``nexusn3dot``, ``movesense``, or ``metawear``
+- ``--sensor-count`` to choose how many sensors to connect
+- ``--tag`` to label the capture session
+- ``--location`` to predefine locations non-interactively
+- ``--identify`` to enable guided identify for supported sensors
+- ``--sampling-rate-hz`` to override the family default
+- ``--duration-seconds`` to stop automatically instead of waiting for manual stop
+
+
 Movella DOT Client
 ------------------
 
