@@ -99,7 +99,8 @@ def main() -> None:
         )
 
         print("Sending hello...")
-        gateway.hello()
+        hello = gateway.hello()
+        print("Hello", hello)
 
         if not args.no_reset:
             print("Resetting gateway session...")
