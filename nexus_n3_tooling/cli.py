@@ -23,6 +23,15 @@ CLIENT_MODULES: dict[str, str] = {
     "MetaWear/stream_client": "MetaWear.stream_client",
     "MetaWear.stream_client": "MetaWear.stream_client",
     "metawear": "MetaWear.stream_client",
+    "RFSurvey/client": "RFSurvey.client",
+    "RFSurvey.client": "RFSurvey.client",
+    "rf-survey": "RFSurvey.client",
+    "RFSurvey/mixed_client": "RFSurvey.mixed_client",
+    "RFSurvey.mixed_client": "RFSurvey.mixed_client",
+    "rf-survey-mixed": "RFSurvey.mixed_client",
+    "RFSurvey/mark_client": "RFSurvey.mark_client",
+    "RFSurvey.mark_client": "RFSurvey.mark_client",
+    "rf-survey-mark": "RFSurvey.mark_client",
     "Capture/cli": "Capture.cli",
     "Capture.cli": "Capture.cli",
     "capture": "Capture.cli",
@@ -35,6 +44,9 @@ def _client_list() -> str:
         "NexusN3Dot/stream_client",
         "Movesense/stream_client",
         "MetaWear/stream_client",
+        "RFSurvey/client",
+        "RFSurvey/mixed_client",
+        "RFSurvey/mark_client",
         "Capture/cli",
     ]
     return "\n".join(f"  {name}" for name in canonical)
@@ -50,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  nexus-n3 MovellaDot/stream_client --sensor-count 1 --stream-seconds 10\n"
             "  nexus-n3 NexusN3Dot/stream_client --sensor-count 1 --stream-seconds 10\n"
             "  nexus-n3 Movesense/stream_client --sensor-count 1 --stream-seconds 10\n"
+            "  nexus-n3 rf-survey --window-ms 5000 --duration-ms 20000\n"
+            "  nexus-n3 rf-survey-mark --movella-count 2 --window-ms 3000 --duration-ms 15000\n"
             "  nexus-n3 capture --sensor-type movelladot --sensor-count 2 --tag walk_trial\n"
             "\nAvailable clients:\n"
             f"{_client_list()}"

@@ -9,7 +9,7 @@ Public repository root: `Nexus-N3/rs-nexus-ble-tooling <https://github.com/Nexus
 RF Survey Clients
 -----------------
 
-``RFSurvey/client.py`` and ``RFSurvey/mixed_client.py`` provide RF Survey workflows on top of the shared gateway SDK.
+``RFSurvey/client.py``, ``RFSurvey/mixed_client.py``, and ``RFSurvey/mark_client.py`` provide RF Survey workflows on top of the shared gateway SDK.
 
 Primary behavior:
 
@@ -25,6 +25,8 @@ During the survey phase, the gateway still uses duplicate advertisements interna
 
 ``RFSurvey/mixed_client.py`` is the mixed-sensor path. It performs one scan, selects a combined target set across the supported sensor families, and starts RF Survey on that merged list.
 
+``RFSurvey/mark_client.py`` is the mixed-sensor marking path. It uses the same target selection flow as ``RFSurvey/mixed_client.py``, but it keeps one operator-entered location mark active at a time. When the gateway emits ``rf_survey_mark_button``, the current mark is closed, the segment summary is printed, and the client prompts for the next mark. While no mark is active, incoming RF Survey status updates are intentionally ignored.
+
 Primary options for ``RFSurvey/mixed_client.py``:
 
 - ``--movella-count`` to select how many Movella DOT sensors to include
@@ -35,10 +37,23 @@ Primary options for ``RFSurvey/mixed_client.py``:
 - ``--window-ms`` to control the RF Survey rolling window
 - ``--duration-ms`` to control the RF Survey duration
 
+Primary options for ``RFSurvey/mark_client.py``:
+
+- ``--movella-count`` to select how many Movella DOT sensors to include
+- ``--movesense-count`` to select how many Movesense sensors to include
+- ``--metawear-count`` to select how many MetaWear sensors to include
+- ``--nexus-n3-dot-count`` to select how many Nexus N3 Dot sensors to include
+- ``--scan-timeout-ms`` to control discovery duration
+- ``--window-ms`` to control the RF Survey rolling window
+- ``--duration-ms`` to control the RF Survey duration
+- enter the first mark before RF Survey starts
+- type ``stop`` at a mark prompt to end the survey
+
 Example:
 
 - ``python -m RFSurvey.mixed_client --movella-count 2 --movesense-count 1 --window-ms 3000 --duration-ms 15000``
 - ``python -m RFSurvey.client --window-ms 5000 --duration-ms 20000``
+- ``python -m RFSurvey.mark_client --movella-count 2 --window-ms 3000 --duration-ms 15000``
 
 
 Capture Client

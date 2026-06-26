@@ -13,7 +13,7 @@ Repository Layout
 - ``NexusN3Dot`` contains the Nexus N3 Dot client and sample CLI.
 - ``Movesense`` contains the Movesense client and sample CLI.
 - ``MetaWear`` contains the MetaWear acceleration client and sample CLI.
-- ``RFSurvey`` contains RF Survey clients for single-target and mixed-sensor survey workflows.
+- ``RFSurvey`` contains RF Survey clients for single-target, mixed-sensor, and marking survey workflows.
 
 Repository paths:
 
@@ -58,3 +58,4 @@ Supported Customer Entry Points
 - ``Movesense/stream_client.py`` for Movesense streaming validation
 - ``RFSurvey/client.py`` for single-target RF Survey validation
 - ``RFSurvey/mixed_client.py`` for mixed-sensor RF Survey validation across supported sensor families
+- ``RFSurvey/mark_client.py`` for mixed-sensor RF Survey validation with operator-driven marks

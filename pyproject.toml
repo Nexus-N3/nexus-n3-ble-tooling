@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nexus-n3-tooling"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python tooling and sample clients for Nexus N3 BLE gateway sensors."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,9 @@ nexus-n3-movella-dot = "MovellaDot.stream_client:main"
 nexus-n3-nexus-n3-dot = "NexusN3Dot.stream_client:main"
 nexus-n3-movesense = "Movesense.stream_client:main"
 nexus-n3-metawear = "MetaWear.stream_client:main"
+nexus-n3-rf-survey = "RFSurvey.client:main"
 nexus-n3-rf-survey-mixed = "RFSurvey.mixed_client:main"
+nexus-n3-rf-survey-mark = "RFSurvey.mark_client:main"
 
 [tool.setuptools]
 include-package-data = true
