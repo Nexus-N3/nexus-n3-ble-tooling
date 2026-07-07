@@ -151,6 +151,7 @@ class NexusN3HDRDotClient:
                     "sample_index": sample_index,
                     "samples_in_notification": packet["sample_count"],
                     "payload_bytes": packet["payload_bytes"],
+                    "timestamp_us": packet.get("timestamp_us"),
                     **sample,
                 }
             )

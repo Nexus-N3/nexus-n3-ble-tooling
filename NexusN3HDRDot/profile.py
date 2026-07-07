@@ -68,6 +68,7 @@ NEXUS_N3_HDR_DOT_STREAM_FIELDS = {
 }
 
 NEXUS_N3_HDR_DOT_DEVICE_STATUS_V2_SIZE = 28
+NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES = 4
 
 DEFAULT_LOCATIONS = [
     "LEFT_KNEE",
@@ -113,7 +114,11 @@ def build_identify_command(duration_ms: int) -> bytes:
 
 
 def parse_sensor_timestamp(payload: bytes) -> int:
-    raise ValueError("Nexus N3 HDR Dot packed stream payloads do not contain timestamps")
+    if len(payload) < NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES:
+        raise ValueError(
+            f"Nexus N3 HDR Dot payload too short for timestamp: got {len(payload)} bytes"
+        )
+    return int(struct.unpack_from("<I", payload, 0)[0])
 
 
 def parse_packet(payload: bytes, stream_mode: str | int = "MAG") -> dict:
@@ -126,14 +131,23 @@ def parse_packet(payload: bytes, stream_mode: str | int = "MAG") -> dict:
     if len(payload) == 0:
         raise ValueError("Nexus N3 HDR Dot payload is empty")
 
-    if len(payload) % bytes_per_sample != 0:
+    payload_bytes = payload
+    header_bytes = 0
+    timestamp_us = None
+    if len(payload) >= NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES and (
+        len(payload) - NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES
+    ) % bytes_per_sample == 0:
+        header_bytes = NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES
+        payload_bytes = payload[header_bytes:]
+        timestamp_us = parse_sensor_timestamp(payload)
+    elif len(payload) % bytes_per_sample != 0:
         raise ValueError(
             f"Nexus N3 HDR Dot payload wrong size for {mode}: "
             f"got {len(payload)}, bytes_per_sample={bytes_per_sample}"
         )
 
-    value_count = len(payload) // 2
-    values = struct.unpack_from(f"<{value_count}h", payload)
+    value_count = len(payload_bytes) // 2
+    values = struct.unpack_from(f"<{value_count}h", payload_bytes)
 
     samples = []
     for offset in range(0, value_count, values_per_sample):
@@ -149,6 +163,7 @@ def parse_packet(payload: bytes, stream_mode: str | int = "MAG") -> dict:
         "stream_mode": mode,
         "sample_count": len(samples),
         "payload_bytes": len(payload),
+        "timestamp_us": timestamp_us,
         "samples": samples,
     }
 
