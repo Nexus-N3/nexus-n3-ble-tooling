@@ -24,21 +24,30 @@ from NexusN3HDRDot.profile import (
     DEFAULT_LOCATIONS,
     DEFAULT_STARTUP_GATE,
     NEXUS_N3_HDR_DOT_STREAM_VALUES_PER_SAMPLE,
+    NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES,
+    parse_sensor_timestamp,
 )
 
 IMU_OUTPUT_RATE_HZ = 2048
 BLE_MAX_PAYLOAD_BYTES = 200
 
 
-def expected_notification_rate_hz(stream_mode: str) -> float:
+def samples_per_notification_for_mode(stream_mode: str) -> int:
     mode = stream_mode.upper()
     values_per_sample = NEXUS_N3_HDR_DOT_STREAM_VALUES_PER_SAMPLE[mode]
     bytes_per_sample = values_per_sample * 2
-    samples_per_notification = BLE_MAX_PAYLOAD_BYTES // bytes_per_sample
+    sample_payload_bytes = BLE_MAX_PAYLOAD_BYTES - NEXUS_N3_HDR_DOT_TIMESTAMP_BYTES
+
+    samples_per_notification = sample_payload_bytes // bytes_per_sample
 
     if samples_per_notification <= 0:
         raise ValueError(f"Invalid samples_per_notification for stream mode {mode}")
 
+    return samples_per_notification
+
+
+def expected_notification_rate_hz(stream_mode: str) -> float:
+    samples_per_notification = samples_per_notification_for_mode(stream_mode)
     return IMU_OUTPUT_RATE_HZ / samples_per_notification
 
 
@@ -121,6 +130,13 @@ def run(args) -> int:
     if startup_min_rate_hz is None:
         startup_min_rate_hz = expected_rate_hz * 0.85
 
+    startup_packets_required = args.startup_packets_required
+    if startup_packets_required == DEFAULT_STARTUP_GATE["packets_required"]:
+        startup_packets_required = max(
+            1,
+            int(startup_min_rate_hz * args.startup_min_observation_seconds),
+        )
+
     device_status_by_address: dict[str, dict] = {}
 
     with open_gateway_serial(args.port) as ser:
@@ -141,6 +157,7 @@ def run(args) -> int:
                     "sample_index",
                     "samples_in_notification",
                     "payload_bytes",
+                    "timestamp_us",
                     "accel_x_mg",
                     "accel_y_mg",
                     "accel_z_mg",
@@ -167,15 +184,24 @@ def run(args) -> int:
             for index, connection in enumerate(connections)
         }
 
+        print(
+            "Startup gate config: "
+            f"expected_notification_rate={expected_rate_hz:.2f}Hz "
+            f"min_rate={startup_min_rate_hz:.2f}Hz "
+            f"packets_required={startup_packets_required} "
+            f"min_observation={args.startup_min_observation_seconds:.1f}s "
+            f"window={args.startup_stability_window_seconds:.1f}s"
+        )
+
         monitor = GenericStreamMonitor(
             connections=connections,
             labels_by_address=labels_by_address,
             expected_rate_hz=expected_rate_hz,
-            timestamp_parser=lambda _payload: 0,
+            timestamp_parser=parse_sensor_timestamp,
             startup_gate=StartupGateConfig(
                 enabled=args.use_startup_gate,
                 stability_window_seconds=args.startup_stability_window_seconds,
-                packets_required=args.startup_packets_required,
+                packets_required=startup_packets_required,
                 min_rate_hz=startup_min_rate_hz,
                 min_observation_seconds=args.startup_min_observation_seconds,
                 max_gap_events=args.startup_max_gap_events,
