@@ -45,9 +45,7 @@ If you do not need a source checkout, install the package directly:
 
 .. code-block:: bash
 
-pip install nexus-n3-ble-tooling
-
-If you are using the current test release:
+The current test release:
 
 .. code-block:: bash
 
@@ -195,6 +193,16 @@ python MovellaDot/stream_client.py
 --sensor-count 1 
 --stream-seconds 10 
 --use-startup-gate
+
+or using the port path directly:
+
+.. code-block:: bash
+
+python MovellaDot/stream_client.py \
+  --port /dev/serial/by-id/usb-ZEPHYR_IFMCU_CMSIS-DAP_820D9A5F0D64CFA48AEBA-if01 \
+  --sensor-count 1 \
+  --stream-seconds 10 \
+  --use-startup-gate
 
 If you installed from pip, run the installed command instead:
 
