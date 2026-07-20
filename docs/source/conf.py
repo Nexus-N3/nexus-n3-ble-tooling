@@ -7,9 +7,9 @@ from pathlib import Path
 ROOT = Path(os.environ.get("RS_NEXUS_BLE_TOOLING_ROOT", Path(__file__).resolve().parents[2]))
 sys.path.insert(0, os.fspath(ROOT))
 
-project = "RS Nexus BLE Tooling"
-author = "RS Nexus"
-copyright = "2026, RS Nexus"
+project = "Nexus N3 BLE Tooling"
+author = "Nexus N3"
+copyright = "2026, Nexus N3"
 
 extensions = [
     "sphinx.ext.autodoc",

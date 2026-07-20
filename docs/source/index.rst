@@ -1,11 +1,11 @@
-RS Nexus BLE Tooling
+Nexus N3 BLE Tooling
 ====================
 
-RS Nexus BLE Tooling is the customer-facing Python host toolkit for the RS Nexus BLE Gateway. It provides a shared gateway SDK, supported sensor clients, and runnable sample applications for bringing BLE sensors online from a host computer.
+Nexus N3 BLE Tooling is the customer-facing Python host toolkit for the Nexus BLE Gateway. It provides a shared gateway SDK, supported sensor clients, and runnable sample applications for bringing BLE sensors online from a host computer.
 
-The BLE gateway is the embedded bridge between supported sensors and the RS Nexus host stack. In production deployments it integrates into **Nexus N3 Edge**, the primary edge product in ``rs-nexus-os``.
+The BLE gateway is the embedded bridge between supported sensors and the Nexus N3 host stack. In production deployments it integrates into **Nexus N3 Edge**, the primary edge product in ``nexus-n3-core``.
 
-Public repository: `Nexus-N3/rs-nexus-ble-tooling <https://github.com/Nexus-N3/rs-nexus-ble-tooling>`_.
+Public repository: `Nexus-N3/nexus-n3-ble-tooling <https://github.com/Nexus-N3/nexus-n3-ble-tooling>`_.
 
 Two documentation entry points are provided so a website can link directly to either the hands-on tutorial or the broader product and API documentation:
 

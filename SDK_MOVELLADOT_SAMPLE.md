@@ -11,7 +11,7 @@ The host tooling is designed so a customer can:
 - understand the gateway lifecycle from the console output
 - reuse the same SDK for future supported sensors
 
-The current host code lives under [rs-nexus-ble-tooling](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling).
+The current host code lives under [nexus-n3-ble-tooling](/home/mike/Desktop/apps/dev/rs-nexus-project/nexus-n3-ble-tooling).
 
 ## Directory Layout
 
@@ -156,7 +156,7 @@ python MovellaDot/stream_client.py \
   --stream-seconds 10
 ```
 
-The full customer-facing usage notes for Movella DOT are in [MovellaDot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/rs-nexus-ble/rs-nexus-ble-tooling/MovellaDot/README.md).
+The full customer-facing usage notes for Movella DOT are in [MovellaDot/README.md](/home/mike/Desktop/apps/dev/rs-nexus-project/nexus-n3-ble-tooling/MovellaDot/README.md).
 
 ## Extending The SDK For Additional Sensors
 

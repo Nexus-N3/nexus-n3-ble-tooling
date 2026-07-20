@@ -1,12 +1,12 @@
 Gateway Overview
 ================
 
-``rs-nexus-ble-gateway`` is the embedded BLE-to-host bridge used by RS Nexus BLE Tooling. The host toolkit does not talk to Zephyr directly; it talks to the gateway over a serial protocol that carries JSON control messages and optional binary stream frames.
+``nexus-ble-gateway`` is the embedded BLE-to-host bridge used by Nexus N3 BLE Tooling. The host toolkit does not talk to Zephyr directly; it talks to the gateway over a serial protocol that carries JSON control messages and optional binary stream frames.
 
 Role In Nexus N3 Edge
 ---------------------
 
-The BLE gateway is not a standalone customer product. It is an enabling component that integrates into **Nexus N3 Edge**, the main product of ``rs-nexus-os``. Within that product, the gateway handles BLE central responsibilities and exposes a stable host-side control and streaming interface to the Python tooling and higher-level Nexus software.
+The BLE gateway is not a standalone customer product. It is an enabling component that integrates into **Nexus N3 Edge**, the main product of ``nexus-n3-core``. Within that product, the gateway handles BLE central responsibilities and exposes a stable host-side control and streaming interface to the Python tooling and higher-level Nexus software.
 
 Gateway Responsibilities
 ------------------------

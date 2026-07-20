@@ -5,14 +5,14 @@ This tutorial is based on the repository's ``SDK_MOVELLADOT_SAMPLE.md`` workflow
 
 Source references:
 
-- `Repository root <https://github.com/Nexus-N3/rs-nexus-ble-tooling>`_
-- `SDK_MOVELLADOT_SAMPLE.md <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/SDK_MOVELLADOT_SAMPLE.md>`_
-- `MovellaDot/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MovellaDot/stream_client.py>`_
+- `Repository root <https://github.com/Nexus-N3/nexus-n3-ble-tooling>`_
+- `SDK_MOVELLADOT_SAMPLE.md <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/SDK_MOVELLADOT_SAMPLE.md>`_
+- `MovellaDot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MovellaDot/stream_client.py>`_
 
 What You Will Use
 -----------------
 
-- A programmed RS Nexus BLE Gateway board connected over USB.
+- A programmed Nexus BLE Gateway board connected over USB.
 - At least one powered Movella DOT sensor advertising nearby.
 - Python 3 with the repository dependencies installed.
 
@@ -33,7 +33,7 @@ The main customer entry point is ``MovellaDot/stream_client.py``:
      --sensor-count 1 \
      --stream-seconds 10
 
-You can inspect the public sample implementation at `MovellaDot/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MovellaDot/stream_client.py>`_.
+You can inspect the public sample implementation at `MovellaDot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MovellaDot/stream_client.py>`_.
 
 What The Sample Does
 --------------------

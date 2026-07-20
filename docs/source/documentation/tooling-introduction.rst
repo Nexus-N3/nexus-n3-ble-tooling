@@ -1,9 +1,9 @@
 Tooling Introduction
 ====================
 
-RS Nexus BLE Tooling is organized around a clean split between a reusable gateway SDK and sensor-specific client packages.
+Nexus N3 BLE Tooling is organized around a clean split between a reusable gateway SDK and sensor-specific client packages.
 
-The public code repository is `Nexus-N3/rs-nexus-ble-tooling <https://github.com/Nexus-N3/rs-nexus-ble-tooling>`_.
+The public code repository is `Nexus-N3/nexus-n3-ble-tooling <https://github.com/Nexus-N3/nexus-n3-ble-tooling>`_.
 
 Repository Layout
 -----------------
@@ -18,13 +18,13 @@ Repository Layout
 
 Repository paths:
 
-- `NexusBLESdk/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/NexusBLESdk>`_
-- `MovellaDot/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/MovellaDot>`_
-- `NexusN3Dot/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/NexusN3Dot>`_
-- `NexusN3HDRDot/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/NexusN3HDRDot>`_
-- `Movesense/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/Movesense>`_
-- `MetaWear/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/MetaWear>`_
-- `RFSurvey/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/RFSurvey>`_
+- `NexusBLESdk/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/NexusBLESdk>`_
+- `MovellaDot/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/MovellaDot>`_
+- `NexusN3Dot/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/NexusN3Dot>`_
+- `NexusN3HDRDot/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/NexusN3HDRDot>`_
+- `Movesense/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/Movesense>`_
+- `MetaWear/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/MetaWear>`_
+- `RFSurvey/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/RFSurvey>`_
 
 Design Intent
 -------------

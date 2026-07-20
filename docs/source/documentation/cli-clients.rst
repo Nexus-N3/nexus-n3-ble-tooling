@@ -3,7 +3,7 @@ CLI Clients
 
 The repository includes customer-facing sample clients built on the shared SDK.
 
-Public repository root: `Nexus-N3/rs-nexus-ble-tooling <https://github.com/Nexus-N3/rs-nexus-ble-tooling>`_.
+Public repository root: `Nexus-N3/nexus-n3-ble-tooling <https://github.com/Nexus-N3/nexus-n3-ble-tooling>`_.
 
 
 RF Survey Clients
@@ -89,8 +89,8 @@ Movella DOT Client
 
 Public source links:
 
-- `MovellaDot/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MovellaDot/stream_client.py>`_
-- `MovellaDot/client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MovellaDot/client.py>`_
+- `MovellaDot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MovellaDot/stream_client.py>`_
+- `MovellaDot/client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MovellaDot/client.py>`_
 
 Primary options:
 
@@ -117,8 +117,8 @@ Nexus N3 Dot Client
 
 Public source links:
 
-- `NexusN3Dot/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusN3Dot/stream_client.py>`_
-- `NexusN3Dot/client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusN3Dot/client.py>`_
+- `NexusN3Dot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusN3Dot/stream_client.py>`_
+- `NexusN3Dot/client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusN3Dot/client.py>`_
 
 Primary options:
 
@@ -146,8 +146,8 @@ Nexus N3 HDR Dot Client
 
 Public source links:
 
-- `NexusN3HDRDot/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusN3HDRDot/stream_client.py>`_
-- `NexusN3HDRDot/client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusN3HDRDot/client.py>`_
+- `NexusN3HDRDot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusN3HDRDot/stream_client.py>`_
+- `NexusN3HDRDot/client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusN3HDRDot/client.py>`_
 
 Primary options:
 
@@ -176,8 +176,8 @@ Movesense Client
 transport and Movesense-specific command UUIDs, discovery filters, and configuration sequences.  
 
 Public source links:    
-- `Movesense/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/Movesense/stream_client.py>`_         
-- `Movesense/client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/Movesense/client.py>`_           
+- `Movesense/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/Movesense/stream_client.py>`_
+- `Movesense/client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/Movesense/client.py>`_
 
 Primary options:
 - ``--port`` to select the gateway serial device
@@ -207,8 +207,8 @@ notifications do not embed a sensor-side timestamp.
 
 Public source links:
 
-- `MetaWear/stream_client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MetaWear/stream_client.py>`_
-- `MetaWear/client.py <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/MetaWear/client.py>`_
+- `MetaWear/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MetaWear/stream_client.py>`_
+- `MetaWear/client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MetaWear/client.py>`_
 
 Primary options:
 

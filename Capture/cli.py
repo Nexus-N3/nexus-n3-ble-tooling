@@ -69,7 +69,7 @@ def prompt_text(prompt: str) -> str:
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(description="Interactive capture client built on rs-nexus-ble-tooling.")
+    parser = argparse.ArgumentParser(description="Interactive capture client built on nexus-n3-ble-tooling.")
     parser.add_argument("--sensor-type", choices=_sensor_choices())
     parser.add_argument("--sensor-count", type=int)
     parser.add_argument("--tag")

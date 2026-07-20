@@ -1,7 +1,7 @@
 Product Features
 ================
 
-RS Nexus BLE Tooling and the Nexus BLE Gateway currently provide a focused set of production-oriented capabilities for connected BLE sensor acquisition, validation, and operator workflows.
+Nexus N3 BLE Tooling and the Nexus BLE Gateway currently provide a focused set of production-oriented capabilities for connected BLE sensor acquisition, validation, and operator workflows.
 
 Current High-Level Features
 ---------------------------

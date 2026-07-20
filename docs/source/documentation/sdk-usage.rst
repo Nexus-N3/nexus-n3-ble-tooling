@@ -3,7 +3,7 @@ SDK Usage
 
 The shared SDK lives in ``NexusBLESdk``. Most custom integrations start with ``open_gateway_serial`` and ``GatewayClient``, then layer a sensor-specific client or custom workflow on top.
 
-Public source reference: `NexusBLESdk/ <https://github.com/Nexus-N3/rs-nexus-ble-tooling/tree/main/NexusBLESdk>`_.
+Public source reference: `NexusBLESdk/ <https://github.com/Nexus-N3/nexus-n3-ble-tooling/tree/main/NexusBLESdk>`_.
 
 Basic Connection Pattern
 ------------------------
@@ -77,4 +77,4 @@ Customers who need a custom host application can either:
 - reuse ``GatewayClient`` directly and implement their own sensor workflow, or
 - follow the repository pattern and create a new sensor package beside ``MovellaDot`` and ``NexusN3Dot``.
 
-For implementation details, inspect the public source for `GatewayClient <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusBLESdk/client.py>`_, `GenericStreamMonitor <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusBLESdk/monitoring.py>`_, and `transport helpers <https://github.com/Nexus-N3/rs-nexus-ble-tooling/blob/main/NexusBLESdk/transport.py>`_.
+For implementation details, inspect the public source for `GatewayClient <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusBLESdk/client.py>`_, `GenericStreamMonitor <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusBLESdk/monitoring.py>`_, and `transport helpers <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/NexusBLESdk/transport.py>`_.
