@@ -1,12 +1,11 @@
 Movella DOT Tutorial
 ====================
 
-This tutorial is based on the repository's ``SDK_MOVELLADOT_SAMPLE.md`` workflow and is intended to get a customer from a connected gateway to a verified data stream with minimal setup.
+This tutorial is the repository's main Movella DOT sample workflow and is intended to get a user from a connected gateway to a verified data stream with minimal setup.
 
 Source references:
 
 - `Repository root <https://github.com/Nexus-N3/nexus-n3-ble-tooling>`_
-- `SDK_MOVELLADOT_SAMPLE.md <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/SDK_MOVELLADOT_SAMPLE.md>`_
 - `MovellaDot/stream_client.py <https://github.com/Nexus-N3/nexus-n3-ble-tooling/blob/main/MovellaDot/stream_client.py>`_
 
 What You Will Use
