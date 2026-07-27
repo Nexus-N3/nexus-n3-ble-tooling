@@ -60,6 +60,20 @@ nexus-n3-capture --sensor-type movelladot --sensor-count 2 --tag walk_trial
 
 For local development, install from the repo root with:
 
+create a virtual environment
+```bash
+python -m venv .venv
+```
+on linux activate the venv with
+```
+source .venv/bin/activate
+```
+on windows activate the venv with (using git bash)
+```bash
+source .venv/Scripts/activate
+
+```
+
 ```bash
 pip install -e .
 ```
