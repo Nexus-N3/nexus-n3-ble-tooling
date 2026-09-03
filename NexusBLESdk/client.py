@@ -312,6 +312,31 @@ class GatewayClient:
 
         raise RuntimeError(f"subscribe failed address={address} after retries: {last_exc}")
 
+    def unsubscribe(
+        self,
+        address: str,
+        characteristic_uuid: str,
+        timeout_s: float,
+    ):
+        self.assert_connected(address, action="unsubscribe")
+
+        request_id = self.request_id("unsubscribe")
+
+        self.send(
+            {
+                "type": "unsubscribe",
+                "request_id": request_id,
+                "address": address,
+                "characteristic_uuid": characteristic_uuid,
+            }
+        )
+
+        self.wait_for_request(
+            request_id,
+            "unsubscribe_complete",
+            timeout_s,
+        )
+
     def write_gatt(
         self,
         address: str,
