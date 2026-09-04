@@ -1,3 +1,6 @@
+> [!NOTE]
+> This toolchain component is designed for test the Nexus BLE Gateway,  a primary component of **[Nexus N3 Core](https://github.com)** edge architecture.
+
 # Nexus BLE Tooling
 
 This repository contains the Python tooling for the Nexus BLE gateway and supported sensor integrations.
