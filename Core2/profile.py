@@ -4,34 +4,68 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass
-from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# BLE profile
+# ---------------------------------------------------------------------------
+
+CORE_NAME_PREFIX = "CORE"
+
+CORE_TEMP_SERVICE_UUID = "00002100-5B1E-4347-B07C-97B514DAE121"
+CORE_TEMP_MEASUREMENT_UUID = "00002101-5B1E-4347-B07C-97B514DAE121"
+CORE_TEMP_CONTROL_POINT_UUID = "00002102-5B1E-4347-B07C-97B514DAE121"
+
+# Legacy CORE firmware advertised this private service rather than the
+# current Core Temp Service.
+CORE_LEGACY_PRIVATE_SERVICE_UUID = "00004200-F366-40B2-AC37-70CCE0AA83B1"
+
+# Service UUIDs accepted when identifying a CORE device during discovery.
+#
+# Keep this as a set because discovery performs a set intersection against
+# the services advertised by each BLE device.
+CORE_DISCOVERY_SERVICE_UUIDS = {
+    CORE_TEMP_SERVICE_UUID.lower(),
+    CORE_LEGACY_PRIVATE_SERVICE_UUID.lower(),
+}
+
+BATTERY_SERVICE_UUID = "0000180F-0000-1000-8000-00805F9B34FB"
+BATTERY_LEVEL_UUID = "00002A19-0000-1000-8000-00805F9B34FB"
+
+
+# CORE currently emits Core Body Temperature characteristic notifications
+# at 1 Hz. This is the BLE notification cadence, not the update rate of
+# the individual temperature metrics.
+EXPECTED_NOTIFICATION_RATE_HZ = 1.0
 
 
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
 
-CORE_NAME_PREFIX = "CORE"
-
-CORE_TEMP_SERVICE_UUID = "00002100-5B1E-4347-B07C-97B514DAE121"
-CORE_LEGACY_PRIVATE_SERVICE_UUID = "00004200-F366-40B2-AC37-70CCE0AA83B1"
-
-CORE_DISCOVERY_SERVICE_UUIDS = {
-    CORE_TEMP_SERVICE_UUID.lower(),
-    CORE_LEGACY_PRIVATE_SERVICE_UUID.lower(),
-}
-
-
 def is_core2_device(device) -> bool:
-    """Return True if a scan result advertises a CORE service."""
+    """
+    Return True if a scan result identifies a CORE device.
+
+    CORE devices may be identified either by an advertised CORE service
+    UUID or by the standard "CORE" device-name prefix.
+    """
 
     advertised_services = {
-        uuid.lower()
-        for uuid in device.service_uuids
+        str(uuid).lower()
+        for uuid in getattr(device, "service_uuids", ())
+        if uuid
     }
 
-    return bool(
-        advertised_services & CORE_DISCOVERY_SERVICE_UUIDS
+    if advertised_services & CORE_DISCOVERY_SERVICE_UUIDS:
+        return True
+
+    name = str(
+        getattr(device, "name", "") or ""
+    ).strip()
+
+    return name.upper().startswith(
+        CORE_NAME_PREFIX.upper()
     )
 
 
@@ -39,7 +73,10 @@ def select_addresses(
     matches,
     sensor_count: int,
 ) -> list[str]:
-    """Select CORE 2 addresses from gateway scan results."""
+    """Select unique CORE 2 addresses from gateway scan results."""
+
+    if sensor_count <= 0:
+        return []
 
     addresses: list[str] = []
 
@@ -56,34 +93,6 @@ def select_addresses(
             break
 
     return addresses
-
-
-# ---------------------------------------------------------------------------
-# BLE profile
-# ---------------------------------------------------------------------------
-
-CORE_TEMP_SERVICE_UUID = "00002100-5B1E-4347-B07C-97B514DAE121"
-CORE_TEMP_MEASUREMENT_UUID = "00002101-5B1E-4347-B07C-97B514DAE121"
-CORE_TEMP_CONTROL_POINT_UUID = "00002102-5B1E-4347-B07C-97B514DAE121"
-
-# Legacy CORE firmware advertised this private service rather than the
-# current Core Temp Service.
-CORE_LEGACY_PRIVATE_SERVICE_UUID = "00004200-F366-40B2-AC37-70CCE0AA83B1"
-
-# These are the preferred identifiers for CORE discovery.
-CORE_DISCOVERY_SERVICE_UUIDS = (
-    CORE_TEMP_SERVICE_UUID,
-    CORE_LEGACY_PRIVATE_SERVICE_UUID,
-)
-
-BATTERY_SERVICE_UUID = "0000180F-0000-1000-8000-00805F9B34FB"
-BATTERY_LEVEL_UUID = "00002A19-0000-1000-8000-00805F9B34FB"
-
-
-# CORE currently emits Core Body Temperature characteristic notifications
-# at 1 Hz. This is the BLE notification cadence, not the update rate of
-# the individual temperature metrics.
-EXPECTED_NOTIFICATION_RATE_HZ = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -337,50 +346,6 @@ def parse_battery_level(packet: bytes) -> int | None:
 
 
 # ---------------------------------------------------------------------------
-# Discovery helpers
-# ---------------------------------------------------------------------------
-
-def select_addresses(
-    matches: list[Any],
-    sensor_count: int,
-) -> list[str]:
-    """
-    Select unique BLE addresses from gateway scan results.
-
-    Results retain the order returned by the gateway and are limited to
-    the requested number of sensors.
-    """
-
-    if sensor_count <= 0:
-        return []
-
-    addresses: list[str] = []
-    seen: set[str] = set()
-
-    for match in matches:
-        if isinstance(match, dict):
-            address = match.get("address")
-        else:
-            address = getattr(match, "address", None)
-
-        if not address:
-            continue
-
-        address = str(address)
-
-        if address in seen:
-            continue
-
-        seen.add(address)
-        addresses.append(address)
-
-        if len(addresses) >= sensor_count:
-            break
-
-    return addresses
-
-
-# ---------------------------------------------------------------------------
 # Display helpers
 # ---------------------------------------------------------------------------
 
@@ -390,7 +355,10 @@ def quality_name(value: int | None) -> str:
     if value is None:
         return "n/a"
 
-    return QUALITY_NAMES.get(value, f"unknown ({value})")
+    return QUALITY_NAMES.get(
+        value,
+        f"unknown ({value})",
+    )
 
 
 def heart_rate_state_name(value: int | None) -> str:
@@ -399,7 +367,10 @@ def heart_rate_state_name(value: int | None) -> str:
     if value is None:
         return "n/a"
 
-    return HR_STATE_NAMES.get(value, f"unknown ({value})")
+    return HR_STATE_NAMES.get(
+        value,
+        f"unknown ({value})",
+    )
 
 
 def _fahrenheit_to_celsius(value: float) -> float:
