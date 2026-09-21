@@ -14,8 +14,8 @@ The layout is split into two parts:
 - `Movesense/`: the Movesense sample client built on top of `NexusBLESdk`
 - `MetaWear/`: the MetaWear sample client built on top of `NexusBLESdk`
 - `RFSurvey/`: RF Survey host-side clients for targeted BLE signal survey workflows
+- `Core2/`: the CORE 2 sample client
 
-Additional sensor integrations can be added beside `MovellaDot/` using the same structure.
 
 
 ## Install from pip
