@@ -267,6 +267,7 @@ def run(args) -> int:
                     "core_temperature",
                     "skin_temperature",
                     "core_reserved",
+                    "quality_state_raw",
                     "core_data_quality",
                     "heart_rate_state",
                     "heart_rate",

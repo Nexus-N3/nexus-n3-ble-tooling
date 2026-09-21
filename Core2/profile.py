@@ -114,7 +114,7 @@ RFU_MASK = 0xC0
 # Special values
 # ---------------------------------------------------------------------------
 
-CORE_TEMPERATURE_UNAVAILABLE = 0x7FFF
+TEMPERATURE_UNAVAILABLE = 0x7FFF
 HEAT_STRAIN_INDEX_UNAVAILABLE = 0xFF
 
 
@@ -166,6 +166,7 @@ class Core2Measurement:
     skin_temperature: float | None
     core_reserved: int | None
 
+    quality_state_raw: int | None
     core_data_quality: int | None
     heart_rate_state: int | None
 
@@ -232,7 +233,7 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
     core_raw = view.get_int_16(offset)
     offset += 2
 
-    if core_raw == CORE_TEMPERATURE_UNAVAILABLE:
+    if core_raw == TEMPERATURE_UNAVAILABLE:
         core_temperature = None
     else:
         core_temperature = core_raw / 100.0
@@ -248,6 +249,7 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
 
     skin_temperature = None
     core_reserved = None
+    quality_state_raw = None
     core_data_quality = None
     heart_rate_state = None
     heart_rate = None
@@ -260,16 +262,19 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
         skin_raw = view.get_int_16(offset)
         offset += 2
 
-        skin_temperature = skin_raw / 100.0
+        if skin_raw == TEMPERATURE_UNAVAILABLE:
+            skin_temperature = None
+        else:
+            skin_temperature = skin_raw / 100.0
 
-        if temperature_is_fahrenheit:
-            skin_temperature = _fahrenheit_to_celsius(
-                skin_temperature
-            )
+            if temperature_is_fahrenheit:
+                skin_temperature = _fahrenheit_to_celsius(
+                    skin_temperature
+                )
 
-    if flags & FLAG_CORE_RESERVED:
-        if offset + 2 > len(packet):
-            return None
+            if flags & FLAG_CORE_RESERVED:
+                if offset + 2 > len(packet):
+                    return None
 
         core_reserved = view.get_int_16(offset)
         offset += 2
@@ -280,6 +285,8 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
 
         quality_state = view.get_uint_8(offset)
         offset += 1
+
+        quality_state_raw = quality_state
 
         quality = quality_state & 0x07
         state = (quality_state >> 4) & 0x03
@@ -311,15 +318,29 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
         if hsi_raw != HEAT_STRAIN_INDEX_UNAVAILABLE:
             heat_strain_index = hsi_raw / 10.0
 
-    # The packet should contain exactly the fields described by flags.
-    if offset != len(packet):
-        return None
+    # Some CORE 2 firmware appends one trailing byte in the HSI position
+    # even when FLAG_HEAT_STRAIN_INDEX is clear.
+    #
+    # The flag remains authoritative: if HSI is not marked present, do not
+    # expose the trailing byte as a Heat Strain Index measurement.
+    remaining = len(packet) - offset
+
+    if remaining:
+        if (
+            not (flags & FLAG_HEAT_STRAIN_INDEX)
+            and remaining == 1
+        ):
+            # Ignore the unflagged trailing byte.
+            pass
+        else:
+            return None
 
     return Core2Measurement(
         flags=flags,
         core_temperature=core_temperature,
         skin_temperature=skin_temperature,
         core_reserved=core_reserved,
+        quality_state_raw=quality_state_raw,
         core_data_quality=core_data_quality,
         heart_rate_state=heart_rate_state,
         heart_rate=heart_rate,
