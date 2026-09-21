@@ -272,9 +272,9 @@ def parse_measurement(packet: bytes) -> Core2Measurement | None:
                     skin_temperature
                 )
 
-            if flags & FLAG_CORE_RESERVED:
-                if offset + 2 > len(packet):
-                    return None
+    if flags & FLAG_CORE_RESERVED:
+        if offset + 2 > len(packet):
+            return None
 
         core_reserved = view.get_int_16(offset)
         offset += 2
