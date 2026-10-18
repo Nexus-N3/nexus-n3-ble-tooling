@@ -27,6 +27,7 @@ class GatewayClient:
         self.stream_partial_frame_waits: int = 0
         self._partial_block_kind: str | None = None
         self._partial_block_len: int = -1
+        self.connection_params: dict[str, dict[str, Any]] = {}
         self.phase = "idle"
 
     def request_id(self, prefix: str) -> str:
@@ -53,6 +54,7 @@ class GatewayClient:
         request_id = self.request_id("reset")
         self.send({"type": "reset_session", "request_id": request_id})
         self.wait_for_request(request_id, "reset_session_complete", timeout_s)
+        self.connection_params.clear()
 
     def scan(
         self,
@@ -713,6 +715,11 @@ class GatewayClient:
 
         return None
 
+    # getter to return the connection parameters for a given address, if available
+    def get_connection_params(self, address: str) -> dict[str, Any] | None:
+        params = self.connection_params.get(self._normalize_address(address))
+        return dict(params) if params is not None else None
+
     def _observe_json(self, msg: dict[str, Any]):
         msg_type = msg.get("type")
 
@@ -720,6 +727,7 @@ class GatewayClient:
             address = msg.get("address")
             if address:
                 self.disconnected_addresses.add(self._normalize_address(address))
+                self.connection_params.pop(self._normalize_address(address), None)
             self._log(
                 "SENSOR DISCONNECTED: "
                 f"{msg.get('address')} phase={self.phase} request_id={msg.get('request_id')} "
@@ -743,6 +751,13 @@ class GatewayClient:
                 normalized = dict(msg)
                 normalized["address"] = address
                 self.gateway_ble_rx_stats[address] = normalized
+
+        if msg_type == "connection_params":
+            address = self._normalize_address(str(msg.get("address", "")))
+            if address:
+                normalized = dict(msg)
+                normalized["address"] = address
+                self.connection_params[address] = normalized
 
     def _drop_and_resync(self, drop_len: int):
         if drop_len <= 0:

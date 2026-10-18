@@ -6,6 +6,10 @@
 
 This repository contains the Python tooling for the Nexus BLE gateway and supported sensor integrations.
 
+For a one-Movella-DOT clock-alignment experiment at 60 Hz, see
+[ClockMeshTest](ClockMeshTest/README.md). Install its optional `clock-mesh` dependency
+from the separate local checkout before running `nexus-n3-clock-mesh`.
+
 The layout is split into two parts:
 
 - `NexusBLESdk/`: shared serial transport, command handling, stream monitoring, startup-gate logic, and generic stream statistics

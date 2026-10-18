@@ -13,7 +13,13 @@ dependencies = [
     "pyserial>=3.5,<4",
 ]
 
+[project.optional-dependencies]
+clock-mesh = ["clock-mesh>=0.1.0,<0.2"]
+
 [project.scripts]
+nexus-n3-clock-mesh = "ClockMeshTest.stream_client:main"
+nexus-n3-clock-mesh-replay = "ClockMeshTest.replay:main"
+nexus-n3-clock-mesh-acceptance-replay = "ClockMeshTest.acceptance_replay:main"
 nexus-n3 = "nexus_n3_tooling.cli:main"
 nexus-n3-capture = "Capture.cli:main"
 nexus-n3-movella-dot = "MovellaDot.stream_client:main"
@@ -40,5 +46,6 @@ include = [
     "MetaWear*",
     "RFSurvey*",
     "Capture*",
+    "ClockMeshTest*",
 ]
 exclude = ["tests*", "docs*", "output-files*", "__pycache__*"]

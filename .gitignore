@@ -29,7 +29,8 @@ htmlcov/
 .env.*
 *.log
 output-files/
-tests/
+tests/*
+!tests/test_clock_mesh.py
 
 # Editor and OS files
 .vscode/
