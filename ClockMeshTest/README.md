@@ -258,6 +258,27 @@ are supported. The first three panels retain mapped-versus-arrival time, arrival
 residuals (samples plus binned means), and applied scale, including recorded first
 acceptances. `--bin-seconds 1` controls only residual averaging.
 
+Compare relative rotation timing under both recorded mappings using paired measurement
+rows from a two-DOT capture:
+
+```bash
+python -m ClockMeshTest.compare_mappings \
+  output-files/clock-mesh/20261021T120847.123666Z_a8899964/observations.csv
+```
+
+The command writes `mapping_comparison.png` and `mapping_comparison.json` beside the
+capture. It calculates gyro angular-speed magnitude, interpolates both DOT traces to
+a shared mapped-time grid, and reports the second-minus-first lag with its peak
+Pearson correlation for the accepted and full candidate mappings. Positive lag means
+the second labeled DOT's corresponding movement occurs later. The default grid is
+5 ms and the search range is +/-500 ms; these can be changed with
+`--sample-interval-ms` and `--max-lag-ms`. Candidate timestamps are the recorded
+pre-observation fit predictions. If an evolving candidate fit moves backward in time,
+that row is excluded from both mapping traces to preserve the same sample set and
+monotonic interpolation; per-trace excluded counts are recorded in the JSON summary.
+This comparison estimates relative movement timing, not absolute accuracy; both
+mappings still use gateway arrivals as their reference.
+
 Each additional panel overlays one matching motion channel from all DOTs, labeled
 by address, sensor ID, and epoch. Motion x coordinates are exactly
 `(mapped_timestamp_ns - shared_origin_ns) / 1e9`, where **one shared origin** is the
