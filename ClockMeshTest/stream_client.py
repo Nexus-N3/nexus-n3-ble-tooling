@@ -1,4 +1,4 @@
-"""Bounded one-DOT 60 Hz experiment with durable observation evidence."""
+"""Bounded multi-DOT 60 Hz experiment with durable observation evidence."""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,7 @@ from NexusBLESdk import CsvRowWriter, DEFAULT_PORT, GatewayClient, open_gateway_
 
 from .evidence import console_summary, write_prediction_error_report
 from .provenance import timestamp_provenance
+from .motion import MOTION_UNITS, decode_motion
 
 
 def repository_info(source: Path) -> dict:
@@ -56,8 +57,10 @@ def software_info() -> dict:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="ClockMesh: exactly one Movella DOT at 60 Hz.")
+    parser = argparse.ArgumentParser(description="ClockMesh: Movella DOTs at 60 Hz.")
     parser.add_argument("--port", default=DEFAULT_PORT)
+    parser.add_argument("--sensor-count", type=int, default=1,
+                        help="Number of DOTs to discover and connect (default: 1).")
     parser.add_argument("--gateway-firmware-id", help="User-supplied running build identifier; never labeled device-reported.")
     parser.add_argument("--inspected-gateway-tick-rate-hz", type=int, default=31_250,
                         help="Supplied inspected-build tick rate, not a runtime-verified capability (default: 31250 Hz / 32 us).")
@@ -78,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def validate_args(args) -> None:
+    if args.sensor_count < 1:
+        raise ValueError("sensor_count must be at least 1")
     for key in ("capture_seconds", "calibration_deadline_seconds", "no_data_seconds",
                 "connect_timeout_s", "subscribe_timeout_s", "write_timeout_s", "disconnect_timeout_s"):
         value = getattr(args, key)
@@ -100,7 +105,11 @@ def run(args) -> int:
     from .alignment import DotExperiment, ExperimentFailure, RECORD_FIELDS
 
     validate_args(args)
-    config = ClockAlignmentConfig(calibration_deadline_ns=round(args.calibration_deadline_seconds * 1e9))
+
+    config = ClockAlignmentConfig(
+        calibration_deadline_ns=round(args.calibration_deadline_seconds * 1e9),
+        min_tracking_acceptance_span_ns=5_000_000_000,  # override the default 30s
+    )
     output = args.output_dir.resolve() / (
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ_") + uuid4().hex[:8])
     output.mkdir(parents=True, exist_ok=False)
@@ -108,7 +117,7 @@ def run(args) -> int:
         "schema_version": 2, "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "running", "output_directory": str(output),
         "configuration": {**vars(args), "output_dir": str(args.output_dir),
-                          "sensor_count": 1, "sampling_rate_hz": 60,
+                          "sampling_rate_hz": 60,
                           "clock_alignment": asdict(config)},
         "capture_duration_origin": "host monotonic time immediately before start_streams; includes acquisition and calibration",
         "calibration_duration_origin": "first observation supplied after stability gate; host elapsed and gateway reference span recorded separately",
@@ -129,6 +138,8 @@ def run(args) -> int:
                 "not an exact association with the radio reception event"
             ),
         },
+        "motion_units": MOTION_UNITS,
+        "motion_payload": "MovellaDot.profile.parse_packet; configured start 01011A; <I10f prefix (44 bytes); quaternion w,x,y,z, acceleration x,y,z, angular velocity x,y,z; unchanged sensor values",
         "continuity_policy": "No inferred rollover; backward/duplicate DOT, backward gateway, or delta disagreement >1s creates new epoch/model and ends run",
         "prediction_error_definition": "observed gateway reference minus accepted fixed mapping; BLE delivery delay included; no fit updates",
         "candidate_diagnostics": "candidate prediction/error use the pre-observe fit; candidate scale/count use the post-observe fit; no candidate acceptance",
@@ -144,7 +155,7 @@ def run(args) -> int:
     }
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     writer = None
-    experiment = None
+    experiments = {}
     gateway = None
     summary = {"status": "failed", "failure": None, "cleanup_errors": []}
     code = 1
@@ -152,7 +163,8 @@ def run(args) -> int:
     try:
         writer = CsvRowWriter(output / "observations.csv", RECORD_FIELDS)
         with open_gateway_serial(args.port) as ser:
-            gateway = GatewayClient(ser, client_name="clock_mesh_one_dot")
+            gateway = GatewayClient(ser, client_name=(
+                "clock_mesh_one_dot" if args.sensor_count == 1 else "clock_mesh_multi_dot"))
             movella = MovellaDotClient(gateway)
             selected = []
             connect_attempted = False
@@ -166,13 +178,18 @@ def run(args) -> int:
                     manifest["gateway_hello"], supplied_firmware_id=args.gateway_firmware_id,
                     inspected_tick_rate_hz=args.inspected_gateway_tick_rate_hz)
                 gateway.phase = "scan"
-                selected = movella.discover(1, args.scan_timeout_ms)
+                selected = movella.discover(args.sensor_count, args.scan_timeout_ms)
                 manifest["selected_addresses"] = selected
+                if len(selected) != args.sensor_count or len(set(selected)) != args.sensor_count:
+                    raise ExperimentFailure(f"Exactly {args.sensor_count} distinct DOTs are required")
                 gateway.phase = "connect"
                 connect_attempted = True
                 connections = movella.connect(selected, timeout_s=args.connect_timeout_s)
-                if len(connections) != 1 or connections[0].sensor_id is None:
-                    raise ExperimentFailure("Exactly one identified connection is required")
+                sensor_ids = [c.sensor_id for c in connections]
+                if (len(connections) != args.sensor_count or None in sensor_ids or
+                        len(set(sensor_ids)) != args.sensor_count or
+                        {c.address for c in connections} != set(selected)):
+                    raise ExperimentFailure(f"Exactly {args.sensor_count} uniquely identified connections are required")
                 manifest["connections"] = [asdict(c) for c in connections]
                 gateway.phase = "post_connect_settle"
                 time.sleep(args.post_connect_settle_seconds)
@@ -183,30 +200,49 @@ def run(args) -> int:
                 time.sleep(args.post_connect_settle_seconds)
                 gateway.phase = "start_streams"
                 started_at = time.monotonic()
-                experiment = DotExperiment(connections[0], started_at=started_at,
-                                           calibration_config=config, no_data_seconds=args.no_data_seconds)
-                manifest["stability_gate"] = asdict(experiment.monitor.startup_gate)
+                experiments = {
+                    c.sensor_id: DotExperiment(c, started_at=started_at,
+                                              calibration_config=config,
+                                              no_data_seconds=args.no_data_seconds)
+                    for c in connections
+                }
+                manifest["experiments"] = [
+                    {"address": exp.connection.address, "sensor_id": sensor_id,
+                     "stability_gate": asdict(exp.monitor.startup_gate)}
+                    for sensor_id, exp in experiments.items()
+                ]
+                manifest["stability_gate"] = asdict(next(iter(experiments.values())).monitor.startup_gate)
                 stream_attempted = True
                 starts = movella.start_streams(write_timeout_s=args.write_timeout_s,
                                                without_response=args.without_response)
-                for address, stamp in starts.items():
-                    experiment.monitor.mark_stream_started(address, stamp)
+                for experiment in experiments.values():
+                    address = experiment.connection.address
+                    if address in starts:
+                        experiment.monitor.mark_stream_started(address, starts[address])
                 print("Streaming: acquisition → stability gate → calibration → measurement")
                 deadline = started_at + args.capture_seconds
                 while time.monotonic() < deadline:
-                    experiment.check_deadlines(time.monotonic())
-                    gateway.phase = experiment.phase
+                    for experiment in experiments.values():
+                        experiment.check_deadlines(time.monotonic())
+                    gateway.phase = (next(iter(experiments.values())).phase
+                                     if args.sensor_count == 1 else "streaming")
                     try:
                         kind, item = gateway.read_item(timeout_s=0.1)
                     except TimeoutError:
                         continue
                     now = time.monotonic()
                     if kind == "stream_frame":
+                        experiment = experiments.get(item.sensor_id)
+                        if experiment is None:
+                            raise ExperimentFailure(f"Unexpected sensor_id {item.sensor_id}")
+                        gateway.phase = experiment.phase
                         params = gateway.get_connection_params(
                             experiment.connection.address
                         )
 
+                        motion = decode_motion(item.payload)
                         row = experiment.process(item, now)
+                        row.update(motion)
                         row["connection_interval_us"] = (
                             params["interval_units"] * 1_250
                             if params is not None
@@ -214,14 +250,14 @@ def run(args) -> int:
                         )
 
                         writer.write_row(row)
-                        experiment.check_deadlines(now)
                     elif item.get("type") == "sensor_disconnected":
                         raise ExperimentFailure(f"Unexpected disconnect: {item}")
-                    else:
+                    for experiment in experiments.values():
                         experiment.check_deadlines(now)
-                experiment.check_deadlines(time.monotonic())
-                if experiment.calibration_outcome != "aligned":
-                    raise ExperimentFailure("Capture ended without an aligned model")
+                for experiment in experiments.values():
+                    experiment.check_deadlines(time.monotonic())
+                    if experiment.calibration_outcome != "aligned":
+                        raise ExperimentFailure(f"Capture ended without an aligned model: {experiment.connection.address}")
                 summary["status"] = "completed"
                 code = 0
             finally:
@@ -229,8 +265,8 @@ def run(args) -> int:
                     address: gateway.get_connection_params(address)
                     for address in selected
                 }
-                if experiment is not None:
-                    ended_at = time.monotonic()
+                ended_at = time.monotonic()
+                for experiment in experiments.values():
                     summary["capture_elapsed_seconds"] = ended_at - experiment.started_at
                     if experiment.calibration_outcome == "pending":
                         experiment.calibration_outcome = "interrupted"
@@ -239,21 +275,32 @@ def run(args) -> int:
                         experiment.stability_outcome = "interrupted"
                 # Independent cleanup attempts: failed stop must not skip disconnect.
                 if stream_attempted:
-                    try:
-                        gateway.phase = "stop_streams"
-                        movella.stop_streams(write_timeout_s=args.write_timeout_s,
-                                             without_response=args.without_response)
-                    except (Exception, KeyboardInterrupt) as exc:
-                        summary["cleanup_errors"].append(f"stop: {type(exc).__name__}: {exc}")
+                    # Isolate each stop so one write failure cannot skip another DOT.
+                    stop_clients = [movella]
+                    if len(movella.connections) > 1:
+                        stop_clients = []
+                        for connection in movella.connections:
+                            client = MovellaDotClient(gateway)
+                            client.connections = [connection]
+                            stop_clients.append(client)
+                    for client in stop_clients:
+                        try:
+                            gateway.phase = "stop_streams"
+                            client.stop_streams(write_timeout_s=args.write_timeout_s,
+                                                without_response=args.without_response)
+                        except (Exception, KeyboardInterrupt) as exc:
+                            addresses = [c.address for c in client.connections]
+                            summary["cleanup_errors"].append(f"stop {addresses}: {type(exc).__name__}: {exc}")
                 if connect_attempted:
-                    try:
-                        gateway.phase = "disconnect"
-                        if movella.connections:
-                            movella.disconnect_all(timeout_s=args.disconnect_timeout_s)
-                        else:
-                            gateway.disconnect(selected, timeout_s=args.disconnect_timeout_s, allow_timeout=True)
-                    except (Exception, KeyboardInterrupt) as exc:
-                        summary["cleanup_errors"].append(f"disconnect: {type(exc).__name__}: {exc}")
+                    for address in selected:
+                        try:
+                            gateway.phase = "disconnect"
+                            if args.sensor_count == 1 and movella.connections:
+                                movella.disconnect_all(timeout_s=args.disconnect_timeout_s)
+                            else:
+                                gateway.disconnect([address], timeout_s=args.disconnect_timeout_s, allow_timeout=True)
+                        except (Exception, KeyboardInterrupt) as exc:
+                            summary["cleanup_errors"].append(f"disconnect {address}: {type(exc).__name__}: {exc}")
                 gateway.phase = "idle"
     except KeyboardInterrupt:
         summary.update(status="cancelled", failure="KeyboardInterrupt")
@@ -269,12 +316,19 @@ def run(args) -> int:
             if summary["cleanup_errors"] and code == 0:
                 summary["status"] = "failed"
                 code = 1
-            if experiment is not None:
-                summary["experiment"] = experiment.summary()
-                summary["ended_epochs"] = experiment.ended_epochs
-                summary["elapsed_seconds_including_cleanup"] = time.monotonic() - experiment.started_at
+            if experiments:
+                summary["experiments"] = [exp.summary() for exp in experiments.values()]
+                for entry, exp in zip(manifest["experiments"], experiments.values()):
+                    entry["result"] = exp.summary()
+                    entry["ended_epochs"] = exp.ended_epochs
+                summary["ended_epochs"] = [epoch for exp in experiments.values() for epoch in exp.ended_epochs]
+                if len(experiments) == 1:
+                    summary["experiment"] = summary["experiments"][0]
+                summary["elapsed_seconds_including_cleanup"] = time.monotonic() - started_at
                 if gateway is not None:
-                    summary["stream_summary_lines"] = experiment.monitor.summary_lines(gateway)
+                    summary["stream_summary_lines"] = [
+                        line for exp in experiments.values() for line in exp.monitor.summary_lines(gateway)
+                    ]
             try:
                 if writer is not None:
                     summary["prediction_error_statistics"] = write_prediction_error_report(

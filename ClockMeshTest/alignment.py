@@ -8,6 +8,7 @@ from MovellaDot.profile import parse_sensor_timestamp
 from NexusBLESdk import GenericStreamMonitor, SensorConnection, StartupGateConfig, StreamFrame
 
 from .candidates import CANDIDATE_FIELDS, observe_with_candidate
+from .motion import MOTION_FIELDS
 
 
 class ExperimentFailure(RuntimeError):
@@ -21,8 +22,8 @@ RECORD_FIELDS = [
     "model_state", "estimated_scale_ns_per_source_unit", "latest_prediction_error_ns",
     "mean_prediction_error_ns", "prediction_error_stddev_ns", "observation_count",
     "retained_calibration_observation_count", "retained_tracking_error_count",
-    "host_elapsed_seconds", "calibration_elapsed_seconds", "connection_interval_us",
-] + CANDIDATE_FIELDS
+    "host_elapsed_seconds", "calibration_elapsed_seconds", "connection_interval_us", "candidate_accepted",
+] + CANDIDATE_FIELDS + MOTION_FIELDS
 
 
 class DotExperiment:
@@ -100,6 +101,7 @@ class DotExperiment:
         reference_ns = gateway * 1_000
         phase = self.phase
         supplied = False
+        accepted = False
         error = None
         candidate = dict.fromkeys(CANDIDATE_FIELDS)
         continuity = "continuous"
@@ -146,6 +148,7 @@ class DotExperiment:
                     self.failure = "Calibration reference-span deadline exceeded before alignment"
                 else:
                     candidate = observe_with_candidate(self.model, raw, reference_ns)
+                    accepted = self.model.accept_candidate(raw)
                     supplied = True
                     if was_tracking:
                         error = self.model.last_prediction_error_ns
@@ -179,6 +182,7 @@ class DotExperiment:
             "retained_tracking_error_count": len(self.model.recent_prediction_errors_ns),
             "host_elapsed_seconds": now - self.started_at,
             "calibration_elapsed_seconds": self._calibration_elapsed(now),
+            "candidate_accepted": accepted,
             **candidate,
         }
 

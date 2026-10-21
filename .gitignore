@@ -31,6 +31,7 @@ htmlcov/
 output-files/
 tests/*
 !tests/test_clock_mesh.py
+!tests/test_clock_mesh_motion.py
 
 # Editor and OS files
 .vscode/

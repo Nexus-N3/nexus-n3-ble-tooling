@@ -1,6 +1,6 @@
-# ClockMesh one-DOT experiment
+# ClockMesh DOT experiment
 
-Runs exactly one Movella DOT at 60 Hz through a Nexus BLE gateway, using the
+Runs one or more Movella DOTs at 60 Hz through a Nexus BLE gateway, using the
 separately installed `clock-mesh` library with unknown source scale. The generic
 model implementation is not copied or changed.
 
@@ -17,7 +17,9 @@ nexus-n3-clock-mesh --port nexus_n3_gw
 ```
 
 The gateway must have compatible firmware, and a powered DOT must be advertising.
-Discovery selects the first matching DOT; keep other DOTs off when identity matters.
+Discovery selects the first matching DOT by default. Use `--sensor-count N` to
+select N distinct DOTs; all requested DOTs must be discovered and connected.
+Keep other DOTs off when identity matters.
 Use a serial path or the existing `nordic_dev` alias if appropriate. Also supported:
 
 ```bash
@@ -34,9 +36,23 @@ The default remains 30 seconds. Both durations start immediately **before stream
 start**, including startup/stability gating and calibration; they are not durations
 of tracking alone.
 
-Two-DOT mode, host/master alignment, quality classification, outlier rejection,
-and automatic drift correction are not included. The live harness does not accept
-candidates; the explicitly selected offline acceptance experiment is described below.
+Host/master alignment, quality classification, outlier rejection, and delay
+corrections are not included. The existing live candidate-acceptance policy is
+preserved: after each supplied observation it calls `accept_candidate(raw)` with
+the live configuration's five-second minimum acceptance span. `candidate_accepted`
+records the outcome. The separate offline acceptance experiment is described below.
+
+Each selected DOT has an independent stability gate, model, deadlines, and summary,
+using the same gateway reference clock. Frames share `observations.csv`, with sensor
+identity and that sensor's latest connection interval retained. Evidence statistics
+remain separate per address/sensor ID/epoch. A failure on any DOT ends the run;
+cleanup attempts to stop and disconnect every selected DOT. `summary.json` includes
+`experiments` per DOT and retains `experiment` for a one-DOT capture; the manifest
+records each experiment's identity and stability gate.
+
+```bash
+nexus-n3-clock-mesh --port nexus_n3_gw --sensor-count 2
+```
 
 ## Workflow and timing
 
@@ -154,7 +170,8 @@ The printed unique capture directory is under `output-files/clock-mesh/`:
   time, raw gateway time, reference/mapped nanoseconds, model-feed flag, state,
   learned scale, current prediction error, retained error mean/population standard
   deviation, total model observation count, retained calibration/error counts, and
-  elapsed durations.
+  elapsed durations, connection interval, candidate acceptance, and the ten decoded
+  motion channels listed below.
 - `manifest.json`: configuration, units, policy, software versions, imported source
   paths, both repository revisions and dirty flags, connection, gate configuration,
   gateway hello, timestamp provenance, and prediction-error output locations.
@@ -194,11 +211,67 @@ The concise console summary labels calibration, full-epoch prediction errors, an
 retained-window prediction errors separately. Previous epoch summaries remain saved.
 
 These are **prediction errors**: observed gateway reference minus the accepted
-fixed mapping. `TRACKING` evaluates errors without updating the fit. Mapped DOT time
+mapping used to evaluate that observation. Candidate acceptance may subsequently
+update the live mapping; it does not change the already recorded error. Mapped DOT time
 is on the gateway timeline; BLE delivery delay and jitter remain in observations.
 Alignment state and small errors do not prove absolute measurement synchronization.
 An error trend alone does not establish clock drift. No host receive timestamp
 instrumentation or gateway-to-host mapping is included.
+
+## Motion fields and shared movement plots
+
+The capture reuses `MovellaDot.profile.parse_packet()` and the client's existing
+`MOVELLA_START_HEX=01011A` payload selection. The decoded prefix is **44 bytes**:
+little-endian uint32 timestamp followed by ten float32 values (`<I10f`), in this order:
+quaternion w/x/y/z, acceleration x/y/z, angular velocity x/y/z. The timestamp remains
+in `raw_dot_timestamp_us`; no duplicate or replacement timestamp is introduced.
+Short motion payloads fail the capture through the existing exception/cleanup path;
+trailing bytes are handled by the existing profile decoder.
+
+| Added CSV columns | Units | Meaning |
+| --- | --- | --- |
+| `quat_w`, `quat_x`, `quat_y`, `quat_z` | dimensionless | Orientation quaternion, scalar component first |
+| `accel_x_m_s2`, `accel_y_m_s2`, `accel_z_m_s2` | m/s² | Calibrated acceleration along each sensor's axes, including gravity |
+| `gyro_x_deg_s`, `gyro_y_deg_s`, `gyro_z_deg_s` | degrees/s | Angular velocity about each sensor's axes |
+
+These are unchanged decoder values, without unit conversion, gravity removal,
+axis rotation, quaternion sign adjustment, filtering, or signal alignment. Units
+follow [Movella's DOT user manual, sections 4.2.2–4.2.4](https://movella.com/hubfs/Downloads/Manuals/Xsens%20DOT%20User%20Manual.pdf);
+the 44-byte quaternion/acceleration/angular-velocity combination is listed as
+Custom mode 5 in the [DOT SDK guide, section 5.1.18](https://www.movella.com/hubfs/Movella%20DOT%20SDK%20Programming%20Guide_iOS.pdf).
+`manifest.json.motion_units` records the units. Motion is saved for every processed
+selected-sensor frame, including acquisition and calibration; it does not affect
+model inputs, candidate acceptance, or timing evidence calculations.
+
+Mount the DOTs rigidly together with corresponding axes oriented alike, then record
+shared movements:
+
+```bash
+nexus-n3-clock-mesh --port nexus_n3_gw --sensor-count 2 --capture-seconds 300
+python -m pip install matplotlib numpy
+python -m ClockMeshTest.plot_observations path/to/observations.csv
+python -m ClockMeshTest.plot_observations path/to/observations.csv --output movement.svg
+```
+
+The default output is `common_timeline.png` beside the CSV; PNG, SVG, and PDF outputs
+are supported. The first three panels retain mapped-versus-arrival time, arrival
+residuals (samples plus binned means), and applied scale, including recorded first
+acceptances. `--bin-seconds 1` controls only residual averaging.
+
+Each additional panel overlays one matching motion channel from all DOTs, labeled
+by address, sensor ID, and epoch. Motion x coordinates are exactly
+`(mapped_timestamp_ns - shared_origin_ns) / 1e9`, where **one shared origin** is the
+minimum `reference_time_ns` in the whole CSV. Integer subtraction precedes float
+conversion. There is no per-sensor zeroing, cross-correlation, delay correction,
+interpolation, or signal shifting. Epochs are separate lines. Rows with no mapped
+timestamp are saved but excluded from these plots; missing channel samples break
+lines. Older CSVs without motion fields still produce the three timing plots.
+
+Compare the timing of corresponding physical events on the motion panels. Different
+mounting orientations can change axis signs and amplitudes; quaternion signs and
+sensor heading can also differ. The plots preserve those differences. Arrival
+residuals retain BLE delivery effects and alone do not measure physical-event
+synchronization.
 
 ## Tracking candidates and offline replay
 
@@ -218,7 +291,9 @@ handling:
 
 Unavailable predictions/errors/scales are empty. A retained count of zero is a
 valid reported count. Rows not supplied to the model have empty candidate fields.
-The accepted mapping remains fixed; candidates are never accepted or smoothed.
+The live path retains its existing post-observation candidate acceptance;
+`candidate_accepted` records whether the library accepted a candidate. The offline
+window-comparison replay below never accepts candidates.
 
 Replay the locally saved five-minute capture without hardware or sleeps:
 
@@ -298,8 +373,8 @@ does not accept candidates.
 
 ## Offline scale-only acceptance experiment
 
-This is a separate, explicitly selected replay experiment. The live harness and the
-window-comparison replay above still never accept candidates. The experiment uses
+This is a separate, explicitly selected replay experiment. The window-comparison
+replay above never accepts candidates; the live policy is described above. This experiment uses
 the library's public `accept_candidate(source_time)` API without modifying it.
 
 After the editable installations are active, replay the saved five-minute capture:

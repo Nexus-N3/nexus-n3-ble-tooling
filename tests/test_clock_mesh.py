@@ -192,22 +192,40 @@ class FakeClock:
         self.now += seconds
 
 
-def mock_run(monkeypatch, tmp_path, mode="normal", *, capture_seconds=30):
+def mock_run(monkeypatch, tmp_path, mode="normal", *, capture_seconds=30, sensor_count=1):
     clock = FakeClock()
     gateway = GatewayClient(object(), verbose=False)
     gateway.reset_session = Mock()
     gateway.hello = Mock(return_value={"type": "hello_ack"})
     gateway.disconnect = Mock()
+    if mode == "disconnect-cleanup-error":
+        gateway.disconnect.side_effect = [RuntimeError("disconnect failed"), None]
     movella = Mock()
-    movella.connections = [SensorConnection("AA:BB", 1)]
-    movella.discover.return_value = ["AA:BB"]
+    movella.connections = [SensorConnection(address, i + 1)
+                           for i, address in enumerate(["AA:BB", "CC:DD"][:sensor_count])]
+    movella.discover.return_value = [c.address for c in movella.connections]
     movella.connect.return_value = movella.connections
-    movella.start_streams.return_value = {"AA:BB": 0}
+    movella.start_streams.return_value = {c.address: 0 for c in movella.connections}
+    gateway.get_connection_params = Mock(side_effect=lambda address: {
+        "interval_units": 6 if address == "AA:BB" else 12})
+    stop_clients = []
+
+    def make_client(*args, **kwargs):
+        if not stop_clients:
+            stop_clients.append(movella)
+            return movella
+        client = Mock()
+        if mode == "cleanup-error" and len(stop_clients) == 1:
+            client.stop_streams.side_effect = RuntimeError("stop failed")
+        stop_clients.append(client)
+        return client
+
+    movella.stop_clients = stop_clients
     index = 0
 
     def read_item(timeout_s):
         nonlocal index
-        clock.sleep(1 / 60 if mode != "no-data" else .1)
+        clock.sleep(1 / (60 * sensor_count) if mode != "no-data" else .1)
         index += 1
         if mode == "no-data":
             raise TimeoutError()
@@ -218,7 +236,21 @@ def mock_run(monkeypatch, tmp_path, mode="normal", *, capture_seconds=30):
                 raise OSError("serial failure")
             if mode == "disconnect":
                 return "json", {"type": "sensor_disconnected", "address": "AA:BB"}
-        return "stream_frame", frame(round(clock.now * 1e6))
+        sensor_id = (index - 1) % sensor_count + 1
+        if mode == "silent-second":
+            sensor_id = 1
+        if mode == "unknown-sensor":
+            sensor_id = 99
+        raw = round(clock.now * 1e6) + (sensor_id - 1) * 4_000_000
+        if mode == "discontinuity-second" and sensor_id == 2 and clock.now > 8:
+            raw = 1
+        reference = round(clock.now * 1e6) + 10_000_000
+        if sensor_id == 2 and clock.now > 8:
+            reference += 5
+        payload = struct.pack("<I10f", raw, *(float(sensor_id * 10 + i) for i in range(10)))
+        if mode == "truncated-motion":
+            payload = payload[:43]
+        return "stream_frame", StreamFrame(sensor_id, reference, payload)
 
     gateway.read_item = read_item
     if mode == "configure-error":
@@ -230,12 +262,17 @@ def mock_run(monkeypatch, tmp_path, mode="normal", *, capture_seconds=30):
         movella.start_streams.side_effect = RuntimeError("start failed")
     if mode == "cleanup-error":
         movella.stop_streams.side_effect = RuntimeError("stop failed")
+    if mode == "duplicate-id":
+        movella.connections[1] = SensorConnection("CC:DD", 1)
+    if mode == "insufficient-discovery":
+        movella.discover.return_value = ["AA:BB"]
     monkeypatch.setattr(stream_client, "time", clock)
     monkeypatch.setattr(stream_client, "GatewayClient", lambda *a, **k: gateway)
-    monkeypatch.setattr(stream_client, "MovellaDotClient", lambda *a, **k: movella)
+    monkeypatch.setattr(stream_client, "MovellaDotClient", make_client)
     monkeypatch.setattr(stream_client, "open_gateway_serial", lambda port: nullcontext(object()))
     args = stream_client.build_parser().parse_args(["--output-dir", str(tmp_path),
                                                   "--capture-seconds", str(capture_seconds),
+                                                  "--sensor-count", str(sensor_count),
                                                   "--post-connect-settle-seconds", "0"])
     code = stream_client.run(args)
     output = next(tmp_path.iterdir())
@@ -257,6 +294,11 @@ def test_saved_capture_records_and_metadata(monkeypatch, tmp_path):
     assert rows[0]["mapped_timestamp_ns"] == ""
     assert rows[0]["mean_prediction_error_ns"] == ""
     assert rows[-1]["stream_phase"] == "measurement"
+    assert rows[-1]["quat_w"] == "10.0"
+    assert rows[-1]["accel_x_m_s2"] == "14.0"
+    assert rows[-1]["gyro_z_deg_s"] == "19.0"
+    assert manifest["motion_units"]["accel_x_m_s2"] == "m/s²"
+    assert manifest["motion_units"]["gyro_z_deg_s"] == "deg/s"
     assert int(rows[-1]["reference_time_ns"]) == int(rows[-1]["gateway_timestamp_us"]) * 1000
     assert rows[-1]["latest_prediction_error_ns"] == "0"
     assert manifest["configuration"]["clock_alignment"]["nominal_scale_ns_per_source_unit"] is None
@@ -302,7 +344,8 @@ def test_cleanup_and_output_on_failure(monkeypatch, tmp_path, mode, expected):
 def test_arg_validation_rejects_unbounded_or_impossible_durations():
     for flag, value in [("--no-data-seconds", "nan"), ("--capture-seconds", "inf"),
                         ("--calibration-deadline-seconds", "1"), ("--capture-seconds", "5"),
-                        ("--inspected-gateway-tick-rate-hz", "0")]:
+                        ("--inspected-gateway-tick-rate-hz", "0"),
+                        ("--sensor-count", "0"), ("--sensor-count", "-1")]:
         args = stream_client.build_parser().parse_args([flag, value])
         with pytest.raises(ValueError):
             stream_client.validate_args(args)
@@ -803,3 +846,81 @@ def test_acceptance_replay_logs_failed_pivot_verification(monkeypatch, tmp_path)
     with (output / "acceptance_events.csv").open() as handle:
         events = list(csv.DictReader(handle))
     assert events[-1]["pivot_preserved_exactly"] == "False"
+
+
+def test_multi_dot_capture_isolates_models_intervals_and_evidence(monkeypatch, tmp_path):
+    code, summary, manifest, rows, movella, gateway = mock_run(
+        monkeypatch, tmp_path, sensor_count=2)
+    assert code == 0
+    assert manifest["configuration"]["sensor_count"] == 2
+    movella.discover.assert_called_once_with(2, 5000)
+    assert [e["sensor_id"] for e in manifest["experiments"]] == [1, 2]
+    assert all(e["result"]["calibration_outcome"] == "aligned" for e in manifest["experiments"])
+    assert [e["sensor_id"] for e in summary["experiments"]] == [1, 2]
+    assert summary["capture_elapsed_seconds"] == pytest.approx(30, abs=1/60)
+    for sensor_id, address, interval, error in [(1, "AA:BB", 7500, 0), (2, "CC:DD", 15000, 5000)]:
+        selected = [r for r in rows if int(r["sensor_id"]) == sensor_id]
+        assert {r["address"] for r in selected} == {address}
+        assert {int(r["connection_interval_us"]) for r in selected} == {interval}
+        assert {float(r["accel_x_m_s2"]) for r in selected} == {sensor_id * 10 + 4}
+        assert {float(r["gyro_z_deg_s"]) for r in selected} == {sensor_id * 10 + 9}
+        assert selected[0]["observation_count"] == "0"
+        assert selected[-1]["stream_phase"] == "measurement"
+        if sensor_id == 1:
+            assert int(selected[-1]["latest_prediction_error_ns"]) == error
+        else:
+            # The existing live acceptance policy updates this sensor's scale.
+            assert any(r["candidate_accepted"] == "True" for r in selected)
+            assert int(selected[-1]["latest_prediction_error_ns"]) < error
+        assert all(int(r["reference_time_ns"]) == int(r["gateway_timestamp_us"]) * 1000 for r in selected)
+        exp = next(e for e in summary["experiments"] if e["sensor_id"] == sensor_id)
+        assert exp["calibration_outcome"] == "aligned"
+        full = next(e for e in summary["prediction_error_statistics"]["epochs"] if e["sensor_id"] == sensor_id)
+        assert full["tracking_error_count"] == exp["tracking_error_count_full_epoch"]
+        assert full["max_prediction_error_ns"] == error
+    assert [c.connections[0].sensor_id for c in movella.stop_clients[1:]] == [1, 2]
+    assert all(c.stop_streams.call_count == 1 for c in movella.stop_clients[1:])
+    assert [call.args[0] for call in gateway.disconnect.call_args_list] == [["AA:BB"], ["CC:DD"]]
+
+
+@pytest.mark.parametrize("mode,reason", [
+    ("silent-second", "No-data"), ("discontinuity-second", "discontinuity"),
+    ("unknown-sensor", "Unexpected sensor_id"), ("duplicate-id", "uniquely identified"),
+    ("insufficient-discovery", "distinct DOTs"), ("start-error", "start failed"),
+    ("cleanup-error", None), ("disconnect-cleanup-error", None),
+    ("partial-connect", "connect failed"), ("configure-error", "configure failed"),
+    ("truncated-motion", "too short for IMU decode"),
+])
+def test_multi_dot_failure_and_cleanup(monkeypatch, tmp_path, mode, reason):
+    code, summary, manifest, rows, movella, gateway = mock_run(
+        monkeypatch, tmp_path, mode, sensor_count=2)
+    assert code == 1
+    assert summary["status"] == manifest["status"] == "failed"
+    if reason:
+        assert reason in summary["failure"]
+    if mode == "insufficient-discovery":
+        movella.connect.assert_not_called()
+        gateway.disconnect.assert_not_called()
+        return
+    assert [call.args[0] for call in gateway.disconnect.call_args_list] == [["AA:BB"], ["CC:DD"]]
+    if mode not in {"duplicate-id", "partial-connect", "configure-error"}:
+        assert len(movella.stop_clients[1:]) == 2
+        assert all(c.stop_streams.call_count == 1 for c in movella.stop_clients[1:])
+    if mode == "silent-second":
+        assert summary["experiments"][1]["failure"]
+    if mode in {"cleanup-error", "disconnect-cleanup-error"}:
+        assert summary["cleanup_errors"]
+
+
+def test_sensor_count_defaults_to_one():
+    assert stream_client.build_parser().parse_args([]).sensor_count == 1
+
+
+def test_evidence_interleaved_sensors_use_independent_interval_origins(tmp_path):
+    rows = [tracking_row(100 + i * INTERVAL_NS, 10) if sensor == 1 else
+            tracking_row(i * INTERVAL_NS, -20, address="CC:DD", sensor_id=2)
+            for i in range(3) for sensor in (1, 2)]
+    report = summarize_observations(write_evidence(tmp_path, rows))
+    assert [e["mean_prediction_error_ns"] for e in report["epochs"]] == [10, -20]
+    assert [e["tracking_error_count"] for e in report["epochs"]] == [3, 3]
+    assert [e["tracking_origin_reference_time_ns"] for e in report["intervals"]] == [100]*3 + [0]*3

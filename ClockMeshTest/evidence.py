@@ -106,7 +106,7 @@ def summarize_observations(path: Path) -> dict:
             "standard_deviation": "population", "interval_duration_ns": INTERVAL_NS,
             "interval_boundary_convention": "[start, end); origin is first tracking observation in each epoch",
             "final_partial_interval_definition": "coverage ends at last tracking observation, not nominal interval end",
-            "model_retained_window": "separate diagnostics in summary.experiment and summary.ended_epochs; not used here",
+            "model_retained_window": "separate diagnostics in summary.experiments (summary.experiment for one DOT) and summary.ended_epochs; not used here",
             "epochs": full_records, "intervals": interval_records}
 
 
@@ -121,11 +121,13 @@ def write_prediction_error_report(observations: Path, intervals_path: Path) -> d
 def console_summary(summary: dict) -> list[str]:
     lines = [f"Capture {summary['status']}"]
     experiments = [*summary.get("ended_epochs", [])]
-    if "experiment" in summary:
+    if "experiments" in summary:
+        experiments.extend(summary["experiments"])
+    elif "experiment" in summary:
         experiments.append(summary["experiment"])
     epochs = summary.get("prediction_error_statistics", {}).get("epochs", [])
     for exp in experiments:
-        lines.append(f"Epoch {exp['connection_epoch']}: stability={exp['stability_gate_outcome']}, "
+        lines.append(f"DOT {exp['address']} (sensor_id={exp['sensor_id']}) epoch {exp['connection_epoch']}: stability={exp['stability_gate_outcome']}, "
                      f"calibration={exp['calibration_outcome']}, duration_s={exp['calibration_duration_seconds']}, "
                      f"scale_ns/source_unit={exp['learned_scale_ns_per_source_unit']}")
         full = next((r for r in epochs if (r['address'], r['sensor_id'], r['connection_epoch']) ==

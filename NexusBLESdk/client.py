@@ -721,6 +721,7 @@ class GatewayClient:
         return dict(params) if params is not None else None
 
     def _observe_json(self, msg: dict[str, Any]):
+        #print("RX JSON:", msg, flush=True)
         msg_type = msg.get("type")
 
         if msg_type == "sensor_disconnected":
@@ -752,12 +753,14 @@ class GatewayClient:
                 normalized["address"] = address
                 self.gateway_ble_rx_stats[address] = normalized
 
-        if msg_type == "connection_params":
+        # capature both messages that provide connection paramters.
+        if msg_type in ("conn_param_initial", "conn_param_updated"):
             address = self._normalize_address(str(msg.get("address", "")))
             if address:
                 normalized = dict(msg)
                 normalized["address"] = address
                 self.connection_params[address] = normalized
+            return
 
     def _drop_and_resync(self, drop_len: int):
         if drop_len <= 0:
