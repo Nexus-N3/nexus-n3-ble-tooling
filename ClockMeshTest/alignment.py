@@ -22,6 +22,7 @@ RECORD_FIELDS = [
     "model_state", "estimated_scale_ns_per_source_unit", "latest_prediction_error_ns",
     "mean_prediction_error_ns", "prediction_error_stddev_ns", "observation_count",
     "retained_calibration_observation_count", "retained_tracking_error_count",
+    "retained_tracking_reference_span_ns",
     "host_elapsed_seconds", "calibration_elapsed_seconds", "connection_interval_us", "candidate_accepted",
 ] + CANDIDATE_FIELDS + MOTION_FIELDS
 
@@ -42,7 +43,12 @@ class DotExperiment:
         self.config = calibration_config
         self.model = AffineClockModel(calibration_config)
         self.epoch = 1
-        self.phase = "acquisition"
+        self.phase = "startup"
+        self.stability_passed_at: float | None = None
+        self.candidate_eligible_at: float | None = None
+        self.ready_at: float | None = None
+        self.official_started_at: float | None = None
+        self.mapping_updates: list[dict] = []
         self.failure: str | None = None
         self.stability_outcome = "pending"
         self.calibration_outcome = "not_started"
@@ -110,13 +116,17 @@ class DotExperiment:
             gateway_delta = gateway - self.previous_gateway
             # Width is verified, actual device wrap semantics are not. A backward
             # jump (even near 2**32), duplicate, or implausible forward jump must
-            # never be passed through to the accepted fixed mapping.
+            # never be passed through to the clock model.
             if dot_delta <= 0 or gateway_delta < 0 or abs(dot_delta - gateway_delta) > 1_000_000:
                 continuity = "discontinuity_new_epoch"
                 self.ended_epochs.append(self.summary())
                 self.epoch += 1
                 self.model = AffineClockModel(self.config)
-                self.phase = phase = "acquisition"
+                self.phase = phase = "startup"
+                self.stability_passed_at = None
+                self.candidate_eligible_at = None
+                self.ready_at = None
+                self.official_started_at = None
                 self.calibration_started_at = None
                 self.calibration_reference_ns = None
                 self.calibration_duration_seconds = None
@@ -128,42 +138,41 @@ class DotExperiment:
         self.previous_dot, self.previous_gateway = raw, gateway
         self.last_data_at = now
         if not self.failure:
-            # Snapshot gate state BEFORE this frame: the gate-passing frame is
-            # acquisition evidence; the NEXT frame is the first calibration pair.
-            if self.monitor.measurement_active:
-                if self.calibration_started_at is None:
-                    self.calibration_started_at = now
-                    self.calibration_reference_ns = reference_ns
-                    self.calibration_outcome = "pending"
-                phase = "measurement" if self.model.mapping_available else "calibration"
-                was_tracking = self.model.state in {ClockModelState.ALIGNED, ClockModelState.TRACKING}
-                span = (reference_ns - self.calibration_reference_ns) / 1e9
-                # Also enforce the deadline in the reference domain so buffered
-                # observations cannot quietly align after the configured span.
-                if (self.calibration_outcome == "pending" and
-                        span > self.config.calibration_deadline_ns / 1e9):
-                    self.calibration_outcome = "failed"
+            if self.calibration_started_at is None:
+                self.calibration_started_at = now
+                self.calibration_reference_ns = reference_ns
+                self.calibration_outcome = "pending"
+            phase = self.phase
+            was_tracking = self.model.state in {ClockModelState.ALIGNED, ClockModelState.TRACKING}
+            span = (reference_ns - self.calibration_reference_ns) / 1e9
+            # Also enforce the deadline in the reference domain so buffered
+            # observations cannot quietly align after the configured span.
+            if (self.calibration_outcome == "pending" and
+                    span > self.config.calibration_deadline_ns / 1e9):
+                self.calibration_outcome = "failed"
+                self.calibration_duration_seconds = self._calibration_elapsed(now)
+                self.calibration_reference_span_seconds = span
+                self.failure = "Calibration reference-span deadline exceeded before alignment"
+            else:
+                candidate = observe_with_candidate(self.model, raw, reference_ns)
+                if self.official_started_at is not None:
+                    accepted = self._apply_candidate(raw, now, full=False)
+                supplied = True
+                if was_tracking:
+                    error = self.model.last_prediction_error_ns
+                    self.tracking_error_count += int(self.official_started_at is not None)
+                if self.calibration_outcome == "pending" and self.model.mapping_available:
+                    self.calibration_outcome = "aligned"
                     self.calibration_duration_seconds = self._calibration_elapsed(now)
                     self.calibration_reference_span_seconds = span
-                    self.failure = "Calibration reference-span deadline exceeded before alignment"
-                else:
-                    candidate = observe_with_candidate(self.model, raw, reference_ns)
-                    accepted = self.model.accept_candidate(raw)
-                    supplied = True
-                    if was_tracking:
-                        error = self.model.last_prediction_error_ns
-                        self.tracking_error_count += 1
-                    if self.calibration_outcome == "pending" and self.model.mapping_available:
-                        self.calibration_outcome = "aligned"
-                        self.calibration_duration_seconds = self._calibration_elapsed(now)
-                        self.calibration_reference_span_seconds = span
-                        self.phase = "measurement"
-                    else:
-                        self.phase = phase
             self.monitor.handle_stream_frame(frame, now)
             if self.monitor.measurement_active and self.stability_outcome == "pending":
                 self.stability_outcome = "passed"
-                self.phase = "calibration"
+                self.stability_passed_at = now
+            if self.candidate_eligible_at is None and self.model.candidate_is_eligible(raw):
+                self.candidate_eligible_at = now
+            if self.ready_at is None and self.ready_for_official_start:
+                self.ready_at = now
         return {
             "address": self.connection.address, "sensor_id": frame.sensor_id,
             "connection_epoch": self.epoch, "stream_phase": phase, "continuity": continuity,
@@ -180,11 +189,42 @@ class DotExperiment:
             "observation_count": self.model.observation_count,
             "retained_calibration_observation_count": self.model.retained_observation_count,
             "retained_tracking_error_count": len(self.model.recent_prediction_errors_ns),
+            "retained_tracking_reference_span_ns": self.model.retained_tracking_reference_span_ns,
             "host_elapsed_seconds": now - self.started_at,
             "calibration_elapsed_seconds": self._calibration_elapsed(now),
             "candidate_accepted": accepted,
             **candidate,
         }
+
+    @property
+    def ready_for_official_start(self) -> bool:
+        return (not self.failure and self.stability_outcome == "passed"
+                and self.previous_dot is not None
+                and self.model.candidate_is_eligible(self.previous_dot))
+
+    def _apply_candidate(self, pivot: int, now: float, *, full: bool) -> bool:
+        before = self.model.map(pivot)
+        candidate = self.model.map_candidate(pivot)
+        old_scale = self.model.estimated_scale_ns_per_source_unit
+        accept = self.model.accept_full_candidate if full else self.model.accept_candidate
+        if not accept(pivot):
+            return False
+        after = self.model.map(pivot)
+        self.mapping_updates.append({
+            "kind": "official_start_full_affine" if full else "continuous_scale",
+            "address": self.connection.address, "sensor_id": self.connection.sensor_id,
+            "connection_epoch": self.epoch, "host_elapsed_seconds": now - self.started_at,
+            "source_pivot_us": pivot, "latest_reference_time_ns": self.previous_gateway * 1000,
+            "mapped_pivot_before_ns": before, "candidate_pivot_ns": candidate,
+            "mapped_pivot_after_ns": after, "old_scale_ns_per_source_unit": old_scale,
+            "new_scale_ns_per_source_unit": self.model.estimated_scale_ns_per_source_unit,
+            "candidate_fit_observation_count": self.model.retained_tracking_observation_count,
+            "candidate_fit_reference_span_ns": self.model.retained_tracking_reference_span_ns,
+        })
+        if not full and after != before:
+            self.failure = "Continuous-scale update did not preserve mapped pivot"
+            raise ExperimentFailure(self.failure)
+        return True
 
     def summary(self) -> dict:
         return {
@@ -200,11 +240,45 @@ class DotExperiment:
             "observation_count": self.model.observation_count,
             "retained_calibration_observation_count": self.model.retained_observation_count,
             "tracking_error_count_full_epoch": self.tracking_error_count,
-            "tracking_error_summary_scope": "retained window in current epoch",
+            "tracking_error_count_scope": "official measurement in current epoch",
+            "tracking_error_summary_scope": "retained window in current epoch, including startup tracking",
             "retained_tracking_error_count": len(self.model.recent_prediction_errors_ns),
+            "retained_tracking_reference_span_ns": self.model.retained_tracking_reference_span_ns,
             "mean_prediction_error_ns": self.model.mean_prediction_error_ns,
             "prediction_error_stddev_ns": self.model.prediction_error_stddev_ns,
-            "packet_diagnostics_scope": "entire connection: startup; post-gate includes calibration and measurement",
+            "stability_passed_host_elapsed_seconds": (
+                None if self.stability_passed_at is None else self.stability_passed_at - self.started_at),
+            "candidate_eligible_host_elapsed_seconds": (
+                None if self.candidate_eligible_at is None else self.candidate_eligible_at - self.started_at),
+            "ready_host_elapsed_seconds": (
+                None if self.ready_at is None else self.ready_at - self.started_at),
+            "official_start_host_elapsed_seconds": (
+                None if self.official_started_at is None else self.official_started_at - self.started_at),
+            "official_start_fit": next(({
+                "observation_count": update["candidate_fit_observation_count"],
+                "reference_span_ns": update["candidate_fit_reference_span_ns"],
+            } for update in self.mapping_updates
+                if update["kind"] == "official_start_full_affine"
+                and update["connection_epoch"] == self.epoch), None),
+            "mapping_update_count": len(self.mapping_updates),
+            "packet_diagnostics_scope": "entire connection; monitor measurement counters cover post-stability frames, including startup calibration",
             "packet_diagnostics": asdict(self.monitor.stats_by_address[self.connection.address]),
             "failure": self.failure,
         }
+
+
+def try_start_official(experiments: list[DotExperiment], now: float) -> bool:
+    """Apply all full candidates between rows, then enter one shared phase."""
+    if not experiments or any(exp.official_started_at is not None for exp in experiments):
+        return False
+    for exp in experiments:
+        exp.check_deadlines(now)
+    if any(not exp.ready_for_official_start for exp in experiments):
+        return False
+    for exp in experiments:
+        if not exp._apply_candidate(exp.previous_dot, now, full=True):
+            raise ExperimentFailure(f"Full startup candidate rejected: {exp.connection.address}")
+    for exp in experiments:
+        exp.official_started_at = now
+        exp.phase = "measurement"
+    return True

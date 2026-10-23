@@ -11,7 +11,7 @@ from unittest.mock import Mock
 import pytest
 from clock_mesh import ClockAlignmentConfig
 
-from ClockMeshTest.alignment import DotExperiment, ExperimentFailure, RECORD_FIELDS
+from ClockMeshTest.alignment import DotExperiment, ExperimentFailure, RECORD_FIELDS, try_start_official
 from ClockMeshTest import stream_client
 from ClockMeshTest.evidence import ErrorStatistics, INTERVAL_NS, summarize_observations
 from ClockMeshTest.provenance import timestamp_provenance
@@ -32,6 +32,15 @@ def experiment(**kwargs):
                          no_data_seconds=kwargs.pop("no_data_seconds", 3), **kwargs)
 
 
+def startup_config(**overrides):
+    return ClockAlignmentConfig(**{
+        "target_calibration_span_ns": 1_000_000_000,
+        "min_tracking_acceptance_span_ns": 5_000_000_000,
+        "reuse_calibration_history": True,
+        **overrides,
+    })
+
+
 def align(exp):
     exp.monitor.measurement_active = True
     exp.stability_outcome = "passed"
@@ -39,16 +48,18 @@ def align(exp):
     return rows
 
 
-def test_conversion_and_no_model_feed_before_gate():
+def test_conversion_and_model_feed_before_gate():
     exp = experiment()
     row = exp.process(frame(0x12345678, 2**40 + 123), 0)
     assert row["raw_dot_timestamp_us"] == 0x12345678
     assert row["unwrapped_dot_timestamp_us"] == 0x12345678
     assert row["reference_time_ns"] == (2**40 + 123) * 1000
-    assert row["stream_phase"] == "acquisition"
-    assert row["observation_count"] == 0
+    assert row["stream_phase"] == "startup"
+    assert row["observation_count"] == 1
     assert row["mapped_timestamp_ns"] is None
     assert row["latest_prediction_error_ns"] is None
+    assert not exp.monitor.measurement_active
+    assert row["model_observation_supplied"]
     assert exp.model.config.nominal_scale_ns_per_source_unit is None
 
 
@@ -78,21 +89,33 @@ def test_late_observation_is_saved_but_not_fed():
     assert exp.calibration_outcome == "failed"
 
 
-def test_actual_stability_gate_then_calibration_then_measurement():
-    exp = experiment()
+def test_calibration_alongside_unchanged_gate_then_shared_measurement():
+    exp = experiment(config=startup_config())
     rows = []
+    boundary = None
     for i in range(430):
         now = i / 60
         exp.check_deadlines(now)
         rows.append(exp.process(frame(round(now * 1e6)), now))
-    first = next(i for i, r in enumerate(rows) if r["model_observation_supplied"])
-    assert all(r["stream_phase"] == "acquisition" for r in rows[:first])
-    assert rows[first]["stream_phase"] == "calibration"
-    assert rows[first]["calibration_elapsed_seconds"] == 0
-    assert rows[first]["observation_count"] == 1
+        if try_start_official([exp], now):
+            boundary = len(rows)
+    assert rows[0]["model_observation_supplied"]
+    assert rows[0]["calibration_elapsed_seconds"] == 0
+    assert rows[0]["observation_count"] == 1
     assert exp.stability_outcome == "passed"
-    assert exp.calibration_duration_seconds == pytest.approx(2, abs=1 / 60)
-    assert rows[-1]["stream_phase"] == "measurement"
+    assert exp.calibration_duration_seconds == pytest.approx(1, abs=1 / 60)
+    assert exp.stability_passed_at == pytest.approx(4, abs=1 / 60)
+    assert exp.ready_at == pytest.approx(5, abs=1 / 60)
+    fit = exp.mapping_updates[0]
+    assert fit["candidate_fit_reference_span_ns"] == 5_000_000_000
+    assert fit["candidate_fit_observation_count"] == 301
+    assert rows[60]["model_state"] == "aligned"
+    assert rows[60]["observation_count"] == rows[60]["retained_tracking_observation_count"] == 61
+    assert rows[300]["observation_count"] == rows[300]["retained_tracking_observation_count"] == 301
+    assert rows[300]["retained_tracking_reference_span_ns"] == 5_000_000_000
+    assert exp.official_started_at == exp.ready_at
+    assert all(r["stream_phase"] == "startup" for r in rows[:boundary])
+    assert all(r["stream_phase"] == "measurement" for r in rows[boundary:])
     assert rows[-1]["estimated_scale_ns_per_source_unit"] == pytest.approx(1000)
 
 
@@ -113,7 +136,7 @@ def test_post_observe_diagnostics_and_no_stale_error_on_alignment():
     assert row["observation_count"] == 421
     assert row["retained_calibration_observation_count"] == 121
     assert row["retained_tracking_error_count"] == 256
-    assert exp.summary()["tracking_error_count_full_epoch"] == 300
+    assert exp.summary()["tracking_error_count_full_epoch"] == 0  # still startup
 
 
 def test_calibration_watchdog_starts_at_first_supplied_observation():
@@ -290,7 +313,7 @@ def test_saved_capture_records_and_metadata(monkeypatch, tmp_path):
     assert summary["experiment"]["calibration_outcome"] == "aligned"
     assert summary["experiment"]["stability_gate_outcome"] == "passed"
     assert list(rows[0]) == RECORD_FIELDS
-    assert rows[0]["observation_count"] == "0"
+    assert rows[0]["observation_count"] == "1"
     assert rows[0]["mapped_timestamp_ns"] == ""
     assert rows[0]["mean_prediction_error_ns"] == ""
     assert rows[-1]["stream_phase"] == "measurement"
@@ -343,7 +366,7 @@ def test_cleanup_and_output_on_failure(monkeypatch, tmp_path, mode, expected):
 
 def test_arg_validation_rejects_unbounded_or_impossible_durations():
     for flag, value in [("--no-data-seconds", "nan"), ("--capture-seconds", "inf"),
-                        ("--calibration-deadline-seconds", "1"), ("--capture-seconds", "5"),
+                        ("--calibration-deadline-seconds", "0.5"), ("--capture-seconds", "0"),
                         ("--inspected-gateway-tick-rate-hz", "0"),
                         ("--sensor-count", "0"), ("--sensor-count", "-1")]:
         args = stream_client.build_parser().parse_args([flag, value])
@@ -376,6 +399,9 @@ def test_full_epoch_errors_survive_real_model_window_eviction(tmp_path):
         offset_us = -60 if i < 465 else 30
         errors.append(offset_us * 1000)
         rows.append(exp.process(frame(raw, raw + 10_000_000 + offset_us), i / 60))
+    # Exercise the report with the saved startup errors explicitly labeled as
+    # synthetic measurement rows; no acceptance occurs in this frozen-fit fixture.
+    rows = [{**row, "stream_phase": "measurement"} for row in rows]
     report = summarize_observations(write_evidence(tmp_path, rows))
     full = report["epochs"][0]
     assert full["tracking_error_count"] == 600
@@ -864,7 +890,7 @@ def test_multi_dot_capture_isolates_models_intervals_and_evidence(monkeypatch, t
         assert {int(r["connection_interval_us"]) for r in selected} == {interval}
         assert {float(r["accel_x_m_s2"]) for r in selected} == {sensor_id * 10 + 4}
         assert {float(r["gyro_z_deg_s"]) for r in selected} == {sensor_id * 10 + 9}
-        assert selected[0]["observation_count"] == "0"
+        assert selected[0]["observation_count"] == "1"
         assert selected[-1]["stream_phase"] == "measurement"
         if sensor_id == 1:
             assert int(selected[-1]["latest_prediction_error_ns"]) == error
@@ -924,3 +950,161 @@ def test_evidence_interleaved_sensors_use_independent_interval_origins(tmp_path)
     assert [e["mean_prediction_error_ns"] for e in report["epochs"]] == [10, -20]
     assert [e["tracking_error_count"] for e in report["epochs"]] == [3, 3]
     assert [e["tracking_origin_reference_time_ns"] for e in report["intervals"]] == [100]*3 + [0]*3
+
+
+def test_no_separate_startup_minimum_with_shorter_candidate_span():
+    exp = experiment(config=startup_config(min_tracking_acceptance_span_ns=100_000_000))
+    for i in range(260):
+        now = i / 60
+        exp.process(frame(round(now * 1e6)), now)
+        if try_start_official([exp], now):
+            break
+    assert exp.official_started_at == exp.stability_passed_at
+    assert exp.official_started_at == pytest.approx(4, abs=1 / 60)
+    assert exp.official_started_at < 5
+
+
+def test_shared_start_waits_for_last_dot_applies_latest_full_fits_and_keeps_rows():
+    config = startup_config()
+    first = experiment(config=config)
+    second = DotExperiment(SensorConnection("CC:DD", 2), started_at=0,
+                           calibration_config=config, no_data_seconds=3)
+    saved_rows = []
+    for i in range(500):
+        now = i / 60
+        for exp, delay, source_offset in [(first, 0, 0), (second, 30, 9_000_000)]:
+            if i < delay:
+                continue
+            raw = round(now * 1e6) + source_offset
+            # Offset arrives after initial alignment, so full acceptance must
+            # change the applied mapping at the official boundary.
+            gateway = round(now * 1e6) + 10_000_000 + (100 if i > delay + 150 else 0)
+            row = exp.process(StreamFrame(exp.connection.sensor_id, gateway,
+                                         struct.pack("<I", raw)), now)
+            saved_rows.append(row)
+        if first.ready_at is not None and second.ready_at is None:
+            assert not try_start_official([first, second], now)
+            assert first.official_started_at is None
+            assert not first.mapping_updates
+        previous_rows = [dict(row) for row in saved_rows]
+        candidates = {exp.connection.sensor_id: exp.model.map_candidate(exp.previous_dot)
+                      for exp in (first, second)}
+        if try_start_official([first, second], now):
+            break
+    assert first.ready_at == pytest.approx(5, abs=1/60)
+    assert second.ready_at == pytest.approx(5.5, abs=1/60)
+    assert first.ready_at < second.ready_at
+    assert first.official_started_at == second.official_started_at == second.ready_at
+    assert saved_rows == previous_rows
+    assert all(row["stream_phase"] == "startup" for row in saved_rows)
+    for exp in (first, second):
+        event, = exp.mapping_updates
+        assert event["candidate_fit_observation_count"] == exp.model.observation_count
+        assert event["candidate_fit_reference_span_ns"] >= 5_000_000_000
+        assert exp.summary()["official_start_fit"] == {
+            "observation_count": exp.model.observation_count,
+            "reference_span_ns": event["candidate_fit_reference_span_ns"],
+        }
+        assert event["source_pivot_us"] == exp.previous_dot
+        assert event["mapped_pivot_after_ns"] == candidates[exp.connection.sensor_id]
+        assert event["mapped_pivot_after_ns"] != event["mapped_pivot_before_ns"]
+        assert event["new_scale_ns_per_source_unit"] == exp.model.candidate_scale_ns_per_source_unit
+        assert exp.model.map(exp.previous_dot) == event["candidate_pivot_ns"]
+        next_source = exp.previous_dot + 16_667
+        previous_prediction = exp.model.map(next_source)
+        row = exp.process(StreamFrame(exp.connection.sensor_id, exp.previous_gateway + 16_668,
+                                     struct.pack("<I", next_source)), now + 1 / 60)
+        assert row["stream_phase"] == "measurement"
+        assert row["candidate_accepted"]
+        assert exp.model.map(next_source) == previous_prediction
+        event = exp.mapping_updates[-1]
+        assert event["kind"] == "continuous_scale"
+        assert event["mapped_pivot_before_ns"] == event["mapped_pivot_after_ns"]
+
+
+def test_capture_boundary_and_update_outputs(monkeypatch, tmp_path):
+    code, summary, manifest, rows, _, _ = mock_run(monkeypatch, tmp_path, sensor_count=2,
+                                                 capture_seconds=8)
+    assert code == 0
+    boundary = summary["official_start"]
+    assert boundary == manifest["official_start"]
+    assert boundary["host_elapsed_seconds"] == max(boundary["dot_readiness_host_elapsed_seconds"].values())
+    count = boundary["after_startup_row_count"]
+    assert all(row["stream_phase"] == "startup" for row in rows[:count])
+    assert all(row["stream_phase"] == "measurement" for row in rows[count:])
+    updates = json.loads((next(tmp_path.iterdir()) / "mapping_updates.json").read_text())
+    assert updates["official_start"] == boundary
+    full = [event for event in updates["updates"] if event["kind"] == "official_start_full_affine"]
+    assert {event["sensor_id"] for event in full} == {1, 2}
+    for event in full:
+        latest_row = next(row for row in reversed(rows[:count])
+                          if int(row["sensor_id"]) == event["sensor_id"])
+        assert event["source_pivot_us"] == int(latest_row["raw_dot_timestamp_us"])
+        assert event["candidate_fit_observation_count"] == int(latest_row["observation_count"])
+        assert event["candidate_fit_observation_count"] == int(latest_row["retained_tracking_observation_count"])
+        assert event["candidate_fit_reference_span_ns"] == int(latest_row["retained_tracking_reference_span_ns"])
+        assert event["candidate_fit_reference_span_ns"] >= 5_000_000_000
+        assert event["mapped_pivot_after_ns"] == event["candidate_pivot_ns"]
+    continuous = [event for event in updates["updates"] if event["kind"] == "continuous_scale"]
+    assert continuous
+    assert all(event["mapped_pivot_after_ns"] == event["mapped_pivot_before_ns"]
+               for event in continuous)
+
+
+def test_capture_budget_includes_startup_and_fails_without_shared_readiness(monkeypatch, tmp_path):
+    code, summary, manifest, rows, movella, _ = mock_run(monkeypatch, tmp_path, capture_seconds=4.5)
+    assert code == 1
+    assert "budget exhausted before shared official readiness" in summary["failure"]
+    assert summary["official_start"] is manifest["official_start"] is None
+    assert all(row["stream_phase"] == "startup" for row in rows)
+    assert summary["capture_elapsed_seconds"] == pytest.approx(4.5, abs=1/60)
+    movella.stop_streams.assert_called_once()
+    movella.disconnect_all.assert_called_once()
+
+
+def test_shared_start_checks_current_watchdogs_before_applying_candidates():
+    exp = experiment(config=startup_config(min_tracking_acceptance_span_ns=100_000_000))
+    for i in range(250):
+        exp.process(frame(round(i * 1e6 / 60)), i / 60)
+    assert exp.ready_for_official_start
+    with pytest.raises(ExperimentFailure, match="No-data"):
+        try_start_official([exp], exp.last_data_at + 3)
+    assert exp.official_started_at is None
+    assert not exp.mapping_updates
+
+
+def test_replays_report_actual_candidate_history_including_initial_alignment():
+    from ClockMeshTest.replay import EpochReplay
+    config = startup_config()
+    comparison = EpochReplay(config)
+    acceptance = AcceptanceEpoch(config)
+    events = []
+    for i in range(301):
+        source = round(i * 1e6 / 60)
+        reference = 10_000_000_000 + source * 1000
+        row = comparison.process(source, reference, True)
+        controlled, event = acceptance.process(source, reference, True)
+        if i == 60:
+            assert row["model_state"] == "aligned"
+            assert row["retained_tracking_observation_count"] == 61
+            assert row["retained_tracking_reference_span_ns"] == 1_000_000_000
+        if event:
+            events.append(event)
+    assert row["observation_count"] == row["retained_tracking_observation_count"] == 301
+    assert row["retained_tracking_reference_span_ns"] == 5_000_000_000
+    assert row["candidate_fit_observation_count"] == 300  # pre-observe fit
+    assert controlled["retained_tracking_observation_count"] == 301
+    event, = events
+    assert event["retained_tracking_observation_count"] == 301
+    assert event["retained_tracking_reference_span_ns"] == 5_000_000_000
+    assert event["pivot_preserved_exactly"]
+
+
+def test_old_manifest_defaults_to_separate_calibration_history(tmp_path):
+    source, config = replay_fixture(tmp_path)
+    config.pop("reuse_calibration_history")
+    manifest = source.with_name("manifest.json")
+    manifest.write_text(json.dumps({"configuration": {"clock_alignment": config}}))
+    restored, recovery = load_configuration(source, None)
+    assert restored.reuse_calibration_history is False
+    assert recovery["new_policy_defaults_for_older_capture"]["reuse_calibration_history"] is False

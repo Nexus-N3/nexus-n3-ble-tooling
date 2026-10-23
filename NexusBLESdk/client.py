@@ -767,6 +767,15 @@ class GatewayClient:
             self._clear_partial_block()
             return
 
+        discarded = bytes(self.buf[:drop_len])
+        print(
+            f"RX DISCARD: phase={self.phase} "
+            f"count={drop_len} "
+            f"hex={discarded.hex()} "
+            f"repr={discarded!r}",
+            flush=True,
+        )
+
         self.stream_resync_drop_bytes += drop_len
         self.stream_resync_events += 1
         del self.buf[:drop_len]

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 import csv
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
@@ -51,9 +50,10 @@ def load_configuration(source: Path, override: Path | None) -> tuple[ClockAlignm
     if not isinstance(values, dict):
         raise ValueError("Required model configuration missing: adjacent manifest.configuration.clock_alignment or --config-json is required")
     known = {f.name for f in fields(ClockAlignmentConfig)}
-    # Older captures predate these tracking-policy APIs. Comparison replay never
-    # accepts candidates; acceptance replay explicitly overrides both policy fields.
-    new_policy_fields = {"max_tracking_observations", "min_tracking_acceptance_span_ns"}
+    # Older captures predate these options. Missing history reuse defaults to
+    # false; acceptance replay overrides the tracking capacity and minimum span.
+    new_policy_fields = {"max_tracking_observations", "min_tracking_acceptance_span_ns",
+                         "reuse_calibration_history"}
     missing = known - new_policy_fields - values.keys()
     unknown = values.keys() - known
     if missing or unknown:
@@ -65,6 +65,9 @@ def load_configuration(source: Path, override: Path | None) -> tuple[ClockAlignm
             if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or
                                       not math.isfinite(value) or value <= 0):
                 raise ValueError("Invalid nominal source scale")
+        elif field.name == "reuse_calibration_history":
+            if type(value) is not bool:
+                raise ValueError("Invalid calibration-history reuse flag")
         elif type(value) is not int or value <= 0:
             raise ValueError(f"Invalid configuration value: {field.name}")
     if config.max_calibration_observations < config.min_learned_observations:
@@ -134,7 +137,6 @@ class ErrorPair:
 class EpochReplay:
     def __init__(self, config: ClockAlignmentConfig):
         self.model = AffineClockModel(config)
-        self.references: deque[int] = deque(maxlen=config.max_tracking_observations)
         self.previous: tuple[int, int] | None = None
         self.origin: int | None = None
         self.full = ErrorPair()
@@ -146,7 +148,7 @@ class EpochReplay:
         self.common_start: int | None = None
 
     def span(self) -> int | None:
-        return self.references[-1] - self.references[0] if self.references else None
+        return self.model.retained_tracking_reference_span_ns
 
     def process(self, source_time: int, reference: int, supplied: bool) -> dict:
         model = self.model
@@ -168,12 +170,8 @@ class EpochReplay:
                        candidate_prediction_uses_full_window=(model.retained_tracking_observation_count ==
                                                                model.config.max_tracking_observations))
             row.update(observe_with_candidate(model, source_time, reference))
-            if tracking:
-                self.references.append(reference)
-                if len(self.references) != model.retained_tracking_observation_count:
-                    raise ValueError("Tracking-window mirror differs from the ClockMesh API count")
-            elif (model.state not in {ClockModelState.ALIGNED, ClockModelState.TRACKING} and
-                  model.observation_count >= model.config.max_calibration_observations):
+            if (model.state not in {ClockModelState.ALIGNED, ClockModelState.TRACKING} and
+                    model.observation_count >= model.config.max_calibration_observations):
                 raise ValueError("Calibration storage exhausted before alignment; provide adequate original calibration capacity via --config-json")
         row.update(model_state=model.state.value, observation_count=model.observation_count,
                    accepted_scale_ns_per_source_unit=model.estimated_scale_ns_per_source_unit,

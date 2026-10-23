@@ -66,7 +66,7 @@ def summarize_observations(path: Path) -> dict:
         for row in reader:
             key = (row["address"], int(row["sensor_id"]), int(row["connection_epoch"]))
             epoch = epochs.setdefault(key, {"all": ErrorStatistics(), "intervals": {}})
-            # Exclude acquisition, calibration, and unsupplied/late observations,
+            # Exclude startup, legacy acquisition/calibration, and unsupplied/late observations,
             # even if a previous error accidentally appears in such a record.
             if (row["stream_phase"] != "measurement" or row["model_state"] != "tracking" or
                     row["model_observation_supplied"].lower() not in {"true", "1"} or
@@ -84,7 +84,7 @@ def summarize_observations(path: Path) -> dict:
     for (address, sensor_id, epoch_id), epoch in epochs.items():
         identity = {"address": address, "sensor_id": sensor_id, "connection_epoch": epoch_id}
         full = epoch["all"]
-        full_records.append({**identity, "scope": "all tracking observations in epoch", **full.record()})
+        full_records.append({**identity, "scope": "official measurement tracking observations in epoch", **full.record()})
         if not full.count:
             continue
         final_index = (full.last_reference_ns - full.first_reference_ns) // INTERVAL_NS
@@ -102,7 +102,7 @@ def summarize_observations(path: Path) -> dict:
                 **stats.record(),
             })
     return {"schema_version": 1, "source_file": path.name,
-            "prediction_error_definition": "observed reference minus accepted fixed mapping",
+            "prediction_error_definition": "observed reference minus pre-update accepted mapping",
             "standard_deviation": "population", "interval_duration_ns": INTERVAL_NS,
             "interval_boundary_convention": "[start, end); origin is first tracking observation in each epoch",
             "final_partial_interval_definition": "coverage ends at last tracking observation, not nominal interval end",

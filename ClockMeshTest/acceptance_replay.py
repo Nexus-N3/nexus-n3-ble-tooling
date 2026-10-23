@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import deque
 import csv
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
@@ -106,7 +105,6 @@ class AcceptanceEpoch:
         self.frozen = AffineClockModel(config)
         self.controlled = AffineClockModel(config)
         self.config = config
-        self.references: deque[int] = deque(maxlen=config.max_tracking_observations)
         self.previous_pair: tuple[int, int] | None = None
         self.next_attempt_ns: int | None = None
         self.attempt_count = 0
@@ -123,7 +121,7 @@ class AcceptanceEpoch:
         self.intervals: dict[int, tuple[ThreePathStatistics, ThreePathStatistics]] = {}
 
     def span(self) -> int | None:
-        return self.references[-1] - self.references[0] if self.references else None
+        return self.controlled.retained_tracking_reference_span_ns
 
     def _attempt(self, source: int, reference: int, prediction_error: int | None) -> dict:
         model = self.controlled
@@ -192,12 +190,8 @@ class AcceptanceEpoch:
                        candidate_fit_reference_span_ns_pre_update=self.span())
             self.frozen.observe(source_time=source, reference_time_ns=reference)
             self.controlled.observe(source_time=source, reference_time_ns=reference)
-            if tracking:
-                self.references.append(reference)
-                if len(self.references) != self.controlled.retained_tracking_observation_count:
-                    raise ValueError("Tracking reference-time mirror disagrees with public observation count")
-            elif (self.controlled.state not in {ClockModelState.ALIGNED, ClockModelState.TRACKING} and
-                  self.controlled.observation_count >= self.config.max_calibration_observations):
+            if (self.controlled.state not in {ClockModelState.ALIGNED, ClockModelState.TRACKING} and
+                    self.controlled.observation_count >= self.config.max_calibration_observations):
                 raise ValueError("Calibration storage exhausted before alignment")
             candidate_scale = self.controlled.candidate_scale_ns_per_source_unit
             first_eligible = (

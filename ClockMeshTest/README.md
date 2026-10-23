@@ -2,7 +2,8 @@
 
 Runs one or more Movella DOTs at 60 Hz through a Nexus BLE gateway, using the
 separately installed `clock-mesh` library with unknown source scale. The generic
-model implementation is not copied or changed.
+model implementation is reused, including its public candidate eligibility and
+acceptance APIs.
 
 ## Install and run
 
@@ -38,7 +39,8 @@ of tracking alone.
 
 Host/master alignment, quality classification, outlier rejection, and delay
 corrections are not included. The existing live candidate-acceptance policy is
-preserved: after each supplied observation it calls `accept_candidate(raw)` with
+preserved after official start: after each supplied observation it calls
+`accept_candidate(raw)` with
 the live configuration's five-second minimum acceptance span. `candidate_accepted`
 records the outcome. The separate offline acceptance experiment is described below.
 
@@ -57,32 +59,70 @@ nexus-n3-clock-mesh --port nexus_n3_gw --sensor-count 2
 ## Workflow and timing
 
 Reset → hello → discover → connect → configure 60 Hz → start → existing stability
-gate → calibrate → measure → stop → disconnect.
+gate and clock calibration in parallel → shared official measurement → stop → disconnect.
 
 The default **30-second capture budget starts immediately before the stream start
 command**. It includes command time, acquisition, stability gating, and calibration.
 Connection/configuration settling occurs before it; shutdown takes additional time.
 Host monotonic time controls watchdogs only, never model reference timestamps.
 
-The mandatory existing `GenericStreamMonitor` gate uses its 60 Hz defaults:
+The unchanged `GenericStreamMonitor` gate uses its 60 Hz defaults:
 five-second deadline, two-second gap grace, at least 60 packets across at least two
 seconds, minimum 58 Hz, and zero gap events. It can pass before its deadline.
-Frames are logged from the first frame processed in the acquisition loop, including
-frames buffered by the existing client during start. The gate-passing frame is
-`acquisition`; the next frame is the first `calibration` observation supplied to
-ClockMesh. The model-acceptance frame remains `calibration`; subsequent frames are
-`measurement`. Existing monitor counters named `measurement_*` include calibration
-because they cover the whole post-gate interval.
+There is **no separate five-second startup minimum**.
 
-Calibration duration starts at the **first supplied observation**, not stream start
-or gate passage. The harness independently enforces the configured calibration
-deadline (default five seconds), checking host elapsed time even without frames.
-It also rejects calibration frames whose gateway reference span exceeds that
-deadline; an exact reference-span deadline is allowed if the host watchdog has not
-expired. Both host duration and reference span at alignment are saved. A separate
-no-data watchdog (default three seconds) applies from stream start and after every
-selected-DOT frame; unrelated messages do not reset it. Durations must be finite
-and positive; capture time must exceed gate plus calibration deadline.
+Frames are logged from the first frame processed in the acquisition loop, including
+frames buffered by the existing client during start. Every valid continuous pair is
+supplied to its DOT's independent ClockMesh model immediately, alongside stream
+stability checks. All these rows have `stream_phase=startup`, including initial
+calibration, tracking, and waiting for other DOTs.
+
+Official measurement begins together for **all selected DOTs**, once every DOT has
+passed its stream gate and its latest tracking candidate is eligible under
+ClockMesh's existing checks: tracking state, minimum learned observation count,
+minimum tracking reference span, finite positive scale, and latest observed source
+pivot. The live configuration establishes **provisional alignment after one second**
+of valid timestamp pairs (`target_calibration_span_ns=1000000000`) and enables
+`reuse_calibration_history=True`. At alignment, ClockMesh seeds its bounded tracking
+window once with the retained calibration pairs, including the alignment pair.
+It does not re-observe them, increment observation counts, or invent tracking errors.
+Each later observation extends that same history exactly once.
+
+The startup full candidate requires **five reference seconds in total**, including
+the initial alignment observations, using the live five-second acceptance span.
+It does not require five additional seconds after alignment. At 60 Hz, exactly
+five seconds normally contains 301 unique pairs (both endpoints included), and
+readiness occurs around five seconds after the first pair, subject to actual
+observations and every DOT's stream gate. No extra timer is added.
+Per-DOT stability, first eligible candidate, combined readiness, and shared official
+start host elapsed times are saved in summaries; readiness and official start are
+also printed when the transition occurs.
+
+At the shared boundary, `accept_full_candidate(latest_source_time)` applies each
+DOT's **full candidate scale and offset**, anchored at that DOT's latest observed
+source timestamp. This can change mapped time at the boundary. The last startup
+row retains its original mapping and diagnostics; every subsequent row is
+`measurement`. No previous CSV row is rewritten. During official measurement,
+`accept_candidate(raw)` updates scale after each observation when eligible,
+preserving the accepted mapped time at that update's pivot exactly. Prediction
+errors always evaluate the mapping before the current observation's acceptance.
+The monitor's existing counters named `measurement_*` still cover the whole
+post-stability interval, which can include startup tracking and waiting for other
+DOTs; `stream_phase` defines the harness's official measurement phase.
+
+Initial calibration duration starts at the **first supplied startup observation**.
+The harness enforces the configured initial calibration deadline (default five
+seconds), checking host elapsed time even without frames. It also rejects initial
+calibration frames whose gateway reference span exceeds that deadline; an exact
+reference-span deadline is allowed if the host watchdog has not expired. Both host
+duration and reference span at initial alignment are saved. This deadline governs
+initial alignment, not tracking-candidate readiness. A separate no-data watchdog
+(default three seconds) applies from stream start and after every selected-DOT
+frame; unrelated messages do not reset it. Durations must be finite and positive.
+`--capture-seconds` remains the **total budget**, including startup. If any DOT fails
+its gate or initial calibration deadline, the run fails. If the total budget ends
+before shared readiness, the run fails clearly rather than reporting a completed
+measurement. A short positive capture budget is allowed and may fail readiness.
 
 ```bash
 nexus-n3-clock-mesh --port /dev/serial/by-id/YOUR_GATEWAY \
@@ -169,16 +209,29 @@ The printed unique capture directory is under `output-files/clock-mesh/`:
 - `observations.csv`: device address/ID, epoch, phase, continuity, raw/unwrapped DOT
   time, raw gateway time, reference/mapped nanoseconds, model-feed flag, state,
   learned scale, current prediction error, retained error mean/population standard
-  deviation, total model observation count, retained calibration/error counts, and
+  deviation, total model observation count, retained calibration/error counts,
+  actual candidate-window reference span (`retained_tracking_reference_span_ns`), and
   elapsed durations, connection interval, candidate acceptance, and the ten decoded
-  motion channels listed below.
+  motion channels listed below. Startup rows remain present with their original
+  mapping and errors; only `measurement` rows enter official error reports.
 - `manifest.json`: configuration, units, policy, software versions, imported source
   paths, both repository revisions and dirty flags, connection, gate configuration,
   gateway hello, timestamp provenance, and prediction-error output locations.
   Revision/dirty fields are null if no source checkout is found.
   Dirty flags are captured at run start, including Git-visible untracked files.
+- `mapping_updates.json`: the shared official-start boundary, expressed as host
+  elapsed time and the number of preceding startup CSV data rows, per-DOT readiness
+  times, and every successful mapping update. Each update records its kind (full
+  affine at official start or continuous scale), sensor/epoch, latest source and
+  reference pivot, candidate mapped pivot, mapped pivot before/after, and old/new
+  scale, plus `candidate_fit_observation_count` and `candidate_fit_reference_span_ns`
+  from the actual fit window. These values expose offset application, history
+  coverage, and subsequent pivot continuity.
+  The shared boundary is also saved in manifest and summary.
 - `summary.json`: status/failure, cleanup errors, stability/calibration outcomes and
-  durations, learned scale, tracking-error counts, retained-window mean and standard
+  durations, actual per-DOT readiness and official start times, learned scale,
+  official tracking-error counts, `official_start_fit` observation count/reference
+  span, retained-window mean and standard
   deviation, **full-epoch prediction-error statistics** under
   `prediction_error_statistics.epochs`, and existing stream/packet-gap diagnostics.
 - `prediction_error_intervals.json`: full-epoch statistics and **non-overlapping
@@ -190,11 +243,14 @@ Diagnostics are read **after** each supplied model observation. Unavailable valu
 are empty CSV fields or JSON null. The alignment frame has no prediction error;
 errors start on the next observation. The original per-observation CSV mean and
 standard deviation, and `summary.experiment`/`summary.ended_epochs`, still cover the
-model's latest retained window (default last 256 errors).
+model's latest retained window (default last 256 errors), which can include startup
+tracking errors. `tracking_error_count_full_epoch` counts official measurement
+tracking errors only.
 
 After the observation writer closes, the harness streams the saved CSV to calculate
-additional summaries. **Full-epoch summaries use every tracking error**, including
-errors already evicted from the model window. Acquisition, calibration, unsupplied
+additional summaries. **Full-epoch summaries use every official measurement tracking error**, including
+errors already evicted from the model window. Startup (including tracking),
+legacy acquisition/calibration, unsupplied
 observations, and empty errors are excluded. Epochs are separate, including empty
 full-epoch statistics for recorded epochs with no tracking errors. Each summary
 provides tracking-error count, signed mean, population standard deviation, minimum,
@@ -240,7 +296,7 @@ follow [Movella's DOT user manual, sections 4.2.2–4.2.4](https://movella.com/h
 the 44-byte quaternion/acceleration/angular-velocity combination is listed as
 Custom mode 5 in the [DOT SDK guide, section 5.1.18](https://www.movella.com/hubfs/Movella%20DOT%20SDK%20Programming%20Guide_iOS.pdf).
 `manifest.json.motion_units` records the units. Motion is saved for every processed
-selected-sensor frame, including acquisition and calibration; it does not affect
+selected-sensor frame, including startup calibration and tracking; it does not affect
 model inputs, candidate acceptance, or timing evidence calculations.
 
 Mount the DOTs rigidly together with corresponding axes oriented alike, then record
@@ -342,6 +398,9 @@ new tracking-observation limit because each comparison explicitly overrides it.
 Older manifests may also omit `min_tracking_acceptance_span_ns`: its library default
 is recorded for comparison replay, which never calls acceptance. The separate
 acceptance experiment below explicitly overrides that policy to 30 seconds.
+Manifests that predate `reuse_calibration_history` use the library's default `false`;
+new captures record the enabled flag explicitly. Both replay tools report candidate
+spans directly from the library, including seeded calibration pairs when enabled.
 `--config-json PATH` explicitly replaces the model configuration with a complete
 configuration JSON object when recovery is unavailable or a deliberate change is
 needed. The override path, contents, and original configuration are recorded; missing

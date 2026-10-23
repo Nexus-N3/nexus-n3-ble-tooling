@@ -94,19 +94,19 @@ def validate_args(args) -> None:
         raise ValueError("scan_timeout_ms must be positive")
     if args.inspected_gateway_tick_rate_hz <= 0:
         raise ValueError("inspected_gateway_tick_rate_hz must be positive")
-    if args.calibration_deadline_seconds < 2:
-        raise ValueError("Calibration deadline must allow the library's two-second calibration span")
-    if args.capture_seconds <= 5 + args.calibration_deadline_seconds:
-        raise ValueError("Capture must exceed the five-second gate plus calibration deadline")
+    if args.calibration_deadline_seconds < 1:
+        raise ValueError("Calibration deadline must allow the provisional one-second calibration span")
 
 
 def run(args) -> int:
     from clock_mesh import ClockAlignmentConfig
-    from .alignment import DotExperiment, ExperimentFailure, RECORD_FIELDS
+    from .alignment import DotExperiment, ExperimentFailure, RECORD_FIELDS, try_start_official
 
     validate_args(args)
 
     config = ClockAlignmentConfig(
+        target_calibration_span_ns=1_000_000_000,
+        reuse_calibration_history=True,
         calibration_deadline_ns=round(args.calibration_deadline_seconds * 1e9),
         min_tracking_acceptance_span_ns=5_000_000_000,  # override the default 30s
     )
@@ -114,13 +114,13 @@ def run(args) -> int:
         datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ_") + uuid4().hex[:8])
     output.mkdir(parents=True, exist_ok=False)
     manifest = {
-        "schema_version": 2, "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "schema_version": 3, "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "running", "output_directory": str(output),
         "configuration": {**vars(args), "output_dir": str(args.output_dir),
                           "sampling_rate_hz": 60,
                           "clock_alignment": asdict(config)},
         "capture_duration_origin": "host monotonic time immediately before start_streams; includes acquisition and calibration",
-        "calibration_duration_origin": "first observation supplied after stability gate; host elapsed and gateway reference span recorded separately",
+        "calibration_duration_origin": "first valid startup observation; initial alignment host elapsed and gateway reference span recorded separately",
         "timestamp_units": {
             "raw_dot_timestamp_us": (
                 "uint32 microseconds, payload bytes 0..3 little-endian"
@@ -141,8 +141,10 @@ def run(args) -> int:
         "motion_units": MOTION_UNITS,
         "motion_payload": "MovellaDot.profile.parse_packet; configured start 01011A; <I10f prefix (44 bytes); quaternion w,x,y,z, acceleration x,y,z, angular velocity x,y,z; unchanged sensor values",
         "continuity_policy": "No inferred rollover; backward/duplicate DOT, backward gateway, or delta disagreement >1s creates new epoch/model and ends run",
-        "prediction_error_definition": "observed gateway reference minus accepted fixed mapping; BLE delivery delay included; no fit updates",
-        "candidate_diagnostics": "candidate prediction/error use the pre-observe fit; candidate scale/count use the post-observe fit; no candidate acceptance",
+        "prediction_error_definition": "observed gateway reference minus pre-update accepted mapping; BLE delivery delay included; official measurement only in error reports",
+        "candidate_diagnostics": "candidate prediction/error use the pre-observe fit; candidate scale/count/span use the post-observe fit; full affine acceptance once at shared official start, then continuous-scale acceptance after each official observation",
+        "startup_policy": "Observe during unchanged stability checks; provisional alignment at one reference second; reuse retained initial calibration pairs in the tracking window exactly once; startup candidate requires five reference seconds of that continuous history, not five additional seconds; no separate startup minimum; all selected DOTs must pass stability and library candidate eligibility before shared official start. Initial calibration deadline starts at first supplied observation; full readiness must occur within total capture budget.",
+        "mapping_update_outputs": "mapping_updates.json: shared boundary after_startup_row_count and all per-DOT full-affine/continuous-scale updates; pivots are latest observed source timestamps; prior CSV rows unchanged",
         "software": software_info(),
         "timestamp_provenance": timestamp_provenance(
             supplied_firmware_id=args.gateway_firmware_id,
@@ -159,6 +161,8 @@ def run(args) -> int:
     gateway = None
     summary = {"status": "failed", "failure": None, "cleanup_errors": []}
     code = 1
+    official_start = None
+    row_count = 0
     print(f"Capture output: {output}")
     try:
         writer = CsvRowWriter(output / "observations.csv", RECORD_FIELDS)
@@ -219,7 +223,7 @@ def run(args) -> int:
                     address = experiment.connection.address
                     if address in starts:
                         experiment.monitor.mark_stream_started(address, starts[address])
-                print("Streaming: acquisition → stability gate → calibration → measurement")
+                print("Streaming: startup (stability + calibration) → shared official measurement")
                 deadline = started_at + args.capture_seconds
                 while time.monotonic() < deadline:
                     for experiment in experiments.values():
@@ -250,6 +254,18 @@ def run(args) -> int:
                         )
 
                         writer.write_row(row)
+                        row_count += 1
+                        if now < deadline and try_start_official(list(experiments.values()), now):
+                            official_start = {
+                                "host_elapsed_seconds": now - started_at,
+                                "after_startup_row_count": row_count,
+                                "dot_readiness_host_elapsed_seconds": {
+                                    exp.connection.address: exp.ready_at - exp.started_at
+                                    for exp in experiments.values()},
+                                "definition": "Boundary after this many CSV data rows; all subsequent rows are official measurement",
+                            }
+                            print(f"Official measurement started at {now - started_at:.3f}s; "
+                                  f"DOT readiness: {official_start['dot_readiness_host_elapsed_seconds']}")
                     elif item.get("type") == "sensor_disconnected":
                         raise ExperimentFailure(f"Unexpected disconnect: {item}")
                     for experiment in experiments.values():
@@ -258,6 +274,10 @@ def run(args) -> int:
                     experiment.check_deadlines(time.monotonic())
                     if experiment.calibration_outcome != "aligned":
                         raise ExperimentFailure(f"Capture ended without an aligned model: {experiment.connection.address}")
+                if official_start is None:
+                    pending = [exp.connection.address for exp in experiments.values()
+                               if not exp.ready_for_official_start]
+                    raise ExperimentFailure(f"Capture budget exhausted before shared official readiness; pending DOTs: {pending}")
                 summary["status"] = "completed"
                 code = 0
             finally:
@@ -338,6 +358,13 @@ def run(args) -> int:
                 summary["status"] = "failed"
                 if code == 0:
                     code = 1
+            summary["official_start"] = manifest["official_start"] = official_start
+            (output / "mapping_updates.json").write_text(json.dumps({
+                "official_start": official_start,
+                "updates": sorted((update for exp in experiments.values()
+                                   for update in exp.mapping_updates),
+                                  key=lambda update: update["host_elapsed_seconds"]),
+            }, indent=2) + "\n", encoding="utf-8")
             manifest.update(status=summary["status"], finished_at_utc=datetime.now(timezone.utc).isoformat())
             (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
             (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
