@@ -34,7 +34,7 @@ from .profile import (
 
 
 class MovesenseClient:
-    def __init__(self, gateway: GatewayClient):
+    def __init__(self, gateway: GatewayClient, *, ecg_only: bool = False):
         '''
         Initializes the MovesenseClient with the given GatewayClient.
          - The gateway is used for all BLE interactions, including scanning, connecting, subscribing, and writing to sensors.
@@ -55,6 +55,9 @@ class MovesenseClient:
             MOVESENSE_HR_STREAM_ID,
             MOVESENSE_TEMP_STREAM_ID,
         )
+        self.ecg_only = ecg_only
+        if ecg_only:
+            self._active_stream_ids = (MOVESENSE_ECG_STREAM_ID,)
 
     def discover(self, sensor_count: int, scan_timeout_ms: int) -> list[str]:
         '''
@@ -132,6 +135,8 @@ class MovesenseClient:
                 without_response=without_response,
             )
             time.sleep(0.05)
+            if self.ecg_only:
+                continue
             self.gateway.write_gatt(
                 connection.address,
                 MOVESENSE_WRITE_UUID,

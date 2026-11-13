@@ -102,7 +102,7 @@ class DotExperiment:
             self.check_deadlines(now)
         except ExperimentFailure:
             pass
-        raw = parse_sensor_timestamp(frame.payload)  # uint32 little-endian microseconds
+        raw = self.source_timestamp_us(frame)
         gateway = frame.gateway_timestamp_us  # uint64 little-endian microseconds
         reference_ns = gateway * 1_000
         phase = self.phase
@@ -195,6 +195,10 @@ class DotExperiment:
             "candidate_accepted": accepted,
             **candidate,
         }
+
+    def source_timestamp_us(self, frame: StreamFrame) -> int:
+        """DOT uint32 little-endian microseconds; overridable for other sensors."""
+        return parse_sensor_timestamp(frame.payload)
 
     @property
     def ready_for_official_start(self) -> bool:

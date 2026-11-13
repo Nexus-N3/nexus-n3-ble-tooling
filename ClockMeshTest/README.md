@@ -54,6 +54,9 @@ records each experiment's identity and stability gate.
 
 ```bash
 nexus-n3-clock-mesh --port nexus_n3_gw --sensor-count 2
+
+python -m ClockMeshTest.stream_client --port nexus_n3_gw --capture-seconds 30 --sensor-count 3
+
 ```
 
 ## Workflow and timing
