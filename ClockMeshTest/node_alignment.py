@@ -42,6 +42,7 @@ class Distribution:
                 "histogram_ns": dict(self.bins)}
 
 
+# new clock relationship between the gateway and the node this is running on.
 class GatewayNodeClock:
     """One observation per received notification, shared by every selected DOT.
 
