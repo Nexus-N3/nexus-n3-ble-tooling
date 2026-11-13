@@ -8,6 +8,12 @@ class StreamFrame:
     sensor_id: int
     gateway_timestamp_us: int
     payload: bytes
+    # Read completion, not application processing or physical byte arrival.
+    # Defaults preserve positional construction by existing clients/tests.
+    node_receive_monotonic_ns: int | None = field(default=None, compare=False)
+    receive_read_id: int | None = field(default=None, compare=False)
+    receive_read_size: int | None = field(default=None, compare=False)
+    receive_batch_index: int | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

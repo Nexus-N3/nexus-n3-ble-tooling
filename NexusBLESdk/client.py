@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import deque
 from typing import Any
 
 from .models import DiscoveredDevice, SensorConnection, StreamFrame
@@ -14,6 +15,9 @@ class GatewayClient:
         self.client_name = client_name
         self.verbose = verbose
         self.buf = bytearray()
+        self._receive_spans = deque()
+        self._receive_buffered_bytes = 0
+        self._receive_read_id = 0
         self.cached_json: list[dict[str, Any]] = []
         self.cached_stream_frames: list[StreamFrame] = []
         self.disconnected_addresses: set[str] = set()
@@ -640,8 +644,9 @@ class GatewayClient:
                 return item
 
             chunk = self.ser.read(256)
+            received_ns = time.monotonic_ns()
             if chunk:
-                self.buf.extend(chunk)
+                self._append_received_bytes(chunk, received_ns)
 
         raise TimeoutError("Timed out waiting for gateway item")
 
@@ -654,7 +659,7 @@ class GatewayClient:
                     return None
 
                 line = self.buf[:newline_index].decode("utf-8", errors="replace").strip()
-                del self.buf[: newline_index + 1]
+                self._consume_received_bytes(newline_index + 1)
                 self._clear_partial_block()
                 if not line:
                     continue
@@ -688,7 +693,11 @@ class GatewayClient:
                     self._drop_and_resync(1)
                     continue
 
-                del self.buf[:total_len]
+                reception = self._consume_received_bytes(total_len)
+                batch_index = None
+                if reception is not None:
+                    batch_index = reception["frames_completed"]
+                    reception["frames_completed"] += 1
                 self._clear_partial_block()
                 return (
                     "stream_frame",
@@ -696,6 +705,10 @@ class GatewayClient:
                         sensor_id=sensor_id,
                         gateway_timestamp_us=gateway_timestamp_us,
                         payload=payload,
+                        node_receive_monotonic_ns=reception["time_ns"] if reception else None,
+                        receive_read_id=reception["read_id"] if reception else None,
+                        receive_read_size=reception["size"] if reception else None,
+                        receive_batch_index=batch_index,
                     ),
                 )
 
@@ -714,6 +727,46 @@ class GatewayClient:
                 self._clear_partial_block()
 
         return None
+
+    def _sync_receive_spans(self):
+        # Direct buffer injection is supported by existing parser users/tests.
+        # Such bytes have unknown reception time; never invent a decode-time one.
+        untracked = len(self.buf) - self._receive_buffered_bytes
+        if untracked > 0:
+            self._receive_spans.append([untracked, None])
+            self._receive_buffered_bytes += untracked
+
+    def _append_received_bytes(self, chunk: bytes, received_ns: int):
+        self._sync_receive_spans()
+        self._receive_read_id += 1
+        self._receive_spans.append([len(chunk), {
+            "time_ns": received_ns, "read_id": self._receive_read_id,
+            "size": len(chunk), "frames_completed": 0,
+        }])
+        self._receive_buffered_bytes += len(chunk)
+        self.buf.extend(chunk)
+
+    def _consume_received_bytes(self, count: int):
+        """Return provenance of the last consumed byte (a frame's checksum).
+
+        Read spans survive partial frames, interleaved JSON and resynchronisation.
+        A frame completed by an earlier read retains that read's timestamp even
+        if another complete frame is decoded much later from the buffer.
+        """
+        self._sync_receive_spans()
+        remaining = count
+        reception = None
+        while remaining:
+            span = self._receive_spans[0]
+            taken = min(remaining, span[0])
+            reception = span[1]
+            remaining -= taken
+            span[0] -= taken
+            if not span[0]:
+                self._receive_spans.popleft()
+        self._receive_buffered_bytes -= count
+        del self.buf[:count]
+        return reception
 
     # getter to return the connection parameters for a given address, if available
     def get_connection_params(self, address: str) -> dict[str, Any] | None:
@@ -778,7 +831,7 @@ class GatewayClient:
 
         self.stream_resync_drop_bytes += drop_len
         self.stream_resync_events += 1
-        del self.buf[:drop_len]
+        self._consume_received_bytes(drop_len)
         self._clear_partial_block()
 
     def _record_partial_block(self, kind: str):
